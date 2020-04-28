@@ -193,7 +193,7 @@ class fastphase():
         try:
             assert lik.shape == (self.nLoci,3)
         except AssertionError:
-            print("Wrong Array Size:", gen.shape,"is not",(self.nLoci,3))
+            print("Wrong Array Size:", lik.shape,"is not",(self.nLoci,3))
             raise
         lik = np.array(lik) 
         self.genolik[ID] = lik - np.max(lik, axis=1,keepdims=True)
@@ -234,11 +234,11 @@ class fastphase():
             par.initUpdate()
 
             tasks =  [ fitInData( 'haplo', par.alpha,par.theta,par.rho,hap,0) for hap in  self.haplotypes.values()]
-            tasks += [ fitInData( 'lik', par.alpha,par.theta,par.rho,lik,0) for lik in  self.genolik.values()]
             if fast:
                 tasks += [ fitInData( 'haplo', par.alpha,par.theta,par.rho,fastphase.gen2hap(gen),0) for gen in  self.genotypes.values()]
             else:
                 tasks += [ fitInData( 'geno', par.alpha,par.theta,par.rho,gen,0) for gen in  self.genotypes.values()]
+                tasks += [ fitInData( 'lik', par.alpha,par.theta,par.rho,lik,0) for lik in  self.genolik.values()]
             results = self.pool.map( fitter, tasks)
 
             for item in results:
@@ -415,7 +415,8 @@ def fitter( item):
         gLogLike,top,bot,jmk=genCalc(item.alpha,item.theta,item.rho,item.data,0)
         res = fitOutData(gLogLike,top,bot,jmk,2)
     elif item.type == 'lik':
-        pass
+        lLogLike,top,bot,jmk=likCalc(item.alpha,imtem.theta,item.rho,item.data,0)
+        res = fitOutData(lLogLike,top,bot,jmk,2)
     return res
 
 def viterber( item):
@@ -475,7 +476,17 @@ def imputer( item):
             path.append( pth)
         res = imputeOutData(pgeno,item.name,probZ, path)
     elif item.type == 'lik':
-        pass
+        pgeno=np.zeros((item.nLoc,3), dtype=np.float64)
+        probZ=[]
+        path=[]
+        x=1.0/len(item.parList)
+        for par in item.parList:
+            pZ,pG=likCalc(par.alpha,par.theta,par.rho,item.data,1)
+            pgeno+=x*pG
+            probZ.append(pZ)
+            pth=None
+            path.append(pth)
+        res = imputeOutData(pgeno,item.name,probZ,path)
     return res
 
 ##### Cluster switch functions
@@ -566,7 +577,7 @@ def switch_pars(par, permut):
             newpar.theta[ j,i] = par.theta[ j, curclus]
     return newpar
 
-############################### Calculations #################################
+################################################# Calculations ####################################################
 
 cdef double hap_p_all(int i, double pz, double theta):
     cdef double rez
@@ -632,7 +643,7 @@ cdef ( int, int) idx2pair( int idx, int nK):
 
 
 
-##### Genotype Calculations 
+############################################ Genotype Calculations ##############################################
 
 cdef double genprG(double t1, double t2, int g):
     cdef double rez
@@ -912,8 +923,8 @@ cpdef genCalc(aa,tt,rr,gg,u2p):
     return logLikelihood,top,bot,jmk
 
 
-##### Genotype likelihood Calculations
-cdef double likprG( np.ndarray[ np.float64_t, ndim=1] gl, double pz, double t1, double t2):
+########################################### Genotype likelihood Calculations #####################################################
+cdef double likprG( double t1,double t2, np.ndarray[ np.float64_t, ndim=1] gl):
     cdef double rez
     cdef int i
     
@@ -928,7 +939,7 @@ cpdef likCalc(aa,tt,rr,ll,u2p):
     cdef np.ndarray[np.float64_t, ndim=2] alpha=aa
     cdef np.ndarray[np.float64_t,ndim=2] theta=tt
     cdef np.ndarray[np.float64_t, ndim=2] rho=rr
-    cdef np.ndarray[np.int_t, ndim=2] lik=gg
+    cdef np.ndarray[np.int_t, ndim=2] lik=ll
     cdef int up2pz=u2p
 
     ## cython declarations
@@ -1134,27 +1145,15 @@ cpdef likCalc(aa,tt,rr,ll,u2p):
             for k1 in range(nK):
                 bot[m,k]+=probZ[m,k1,k]
         # ## top
-        # if gen[m]==0:
-        #     for k in range(nK):
-        #         top[m,k]=0
-        # elif gen[m]==1:
-        #     for k in range(nK):
-        #         for k1 in range(nK):
-        #             t1=theta[m,k]*(1-theta[m,k1])
-        #             t2=t1+theta[m,k1]*(1-theta[m,k])
-        #             if (k == k1):
-        #                 top[m,k] += 2*probZ[m,k,k1]*t1/t2
-        #             else:
-        #                 top[m,k] += probZ[m,k,k1]*t1/t2
-        # elif gen[m]==2:
-        #     for k in range(nK):
-        #         top[m,k] += probZ[m,k,k]
-        #         for k1 in range(nK):
-        #             top[m,k] += probZ[m,k,k1]
-        # else:
-        #     for k in range(nK):
-        #         top[m,k]=0
-        #         bot[m,k]=0
+        for k in range(nK):
+            for k1 in range(nK):
+                t1=theta[m,k]*(1-theta[m,k1])
+                t2=t1+theta[m,k1]*(1-theta[m,k])
+                temp = probZ[m,k,k1]*((t1/t2)*p_g_givX[m,1] + p_g_givX[m,2])
+                if (k == k1):
+                    top[m,k] += 2*temp
+                else:
+                    top[m,k] += temp
     return logLikelihood,top,bot,jmk
 
 
