@@ -134,6 +134,7 @@ class fastphase():
         self.nLoci=nLoci
         self.haplotypes={}
         self.genotypes={}
+        self.genolik={}
         self.nproc = nproc
         self.pool = None
         self.prfx = prfx
@@ -157,6 +158,7 @@ class fastphase():
         '''
         self.haplotypes={}
         self.genotypes={}
+        self.genolik={}
     
     def addHaplotype(self,ID,hap,missing=-1):
         '''
@@ -182,7 +184,20 @@ class fastphase():
         except AssertionError:
             print("Wrong Genotype Size:",gen.shape[0],"is not",self.nLoci)
             raise
-
+    def addGenotypeLikelihoods(self, ID, lik):
+        '''
+        Add a matrix of genotype likelihoods to the model observations.
+        lik is a numpy array of shape (nLoci,3).
+        Values are (natural)log-likelihoods log( P( Data | G=0,1,2) )
+        '''
+        try:
+            assert lik.shape == (self.nLoci,3)
+        except AssertionError:
+            print("Wrong Array Size:", gen.shape,"is not",(self.nLoci,3))
+            raise
+        lik = np.array(lik) 
+        self.genolik[ID] = lik - np.max(lik, axis=1,keepdims=True)
+            
     @staticmethod
     def gen2hap(gen):
         return np.array( _tohap(np.array(gen, dtype=int)), dtype=int)
@@ -219,6 +234,7 @@ class fastphase():
             par.initUpdate()
 
             tasks =  [ fitInData( 'haplo', par.alpha,par.theta,par.rho,hap,0) for hap in  self.haplotypes.values()]
+            tasks += [ fitInData( 'lik', par.alpha,par.theta,par.rho,lik,0) for lik in  self.genolik.values()]
             if fast:
                 tasks += [ fitInData( 'haplo', par.alpha,par.theta,par.rho,fastphase.gen2hap(gen),0) for gen in  self.genotypes.values()]
             else:
@@ -238,6 +254,11 @@ class fastphase():
 
     def optimfit(self, nClus = 20, nstep = 10, params=None, verbose = False, rhomin=1e-6, alpha_up = False, fast=False, nEM = 10, niter=5):
         liktraj = []
+
+        try:
+            assert(len(self.genotypes)+len(self.haplotypes) > 0)
+        except:
+            raise AssertionError("Optimfit only available with genotyping data")
 
         print("=== OPTIMFIT RUN ===",file=self.flog)
         ## Fit nEM EM to find an initial start
@@ -372,6 +393,7 @@ class fastphase():
     def impute(self,parList):
         tasks =  [ imputeInData('haplo',parList,self.nLoci,name,hap) for name, hap in  self.haplotypes.items()]
         tasks += [ imputeInData('geno',parList,self.nLoci,name,gen) for name, gen in self.genotypes.items()]
+        tasks += [ imputeInData('lik',parList,self.nLoci,name,lik) for name, lik in self.genolik.items()]
         results = self.pool.map( imputer, tasks)
         Imputations={}
         for item in results:
@@ -392,6 +414,8 @@ def fitter( item):
     elif item.type == 'geno' :
         gLogLike,top,bot,jmk=genCalc(item.alpha,item.theta,item.rho,item.data,0)
         res = fitOutData(gLogLike,top,bot,jmk,2)
+    elif item.type == 'lik':
+        pass
     return res
 
 def viterber( item):
@@ -445,12 +469,13 @@ def imputer( item):
             for i in range(item.nLoc):
                 for k1 in range(par.nClus):
                     for k2 in range(par.nClus):
-                        pgeno[i]+=gen_p_geno(item.data[i],pZ[i,k1,k2],par.theta[i,k1],par.theta[i,k2])
+                        pgeno[i]+=x*gen_p_geno(item.data[i],pZ[i,k1,k2],par.theta[i,k1],par.theta[i,k2])
             probZ.append(pZ)
             pth = None#genViterbi( par.alpha, par.theta, par.rho, item.data)
             path.append( pth)
-        pgeno/=len(item.parList)
         res = imputeOutData(pgeno,item.name,probZ, path)
+    elif item.type == 'lik':
+        pass
     return res
 
 ##### Cluster switch functions
@@ -558,7 +583,6 @@ cdef double gen_p_geno(int i, double pz, double theta1, double theta2):
         rez=pz*(theta1+theta2)
     else:
         rez=i*pz
-        #rez=pz*(theta1+theta2)
     return rez
 
 
@@ -605,6 +629,7 @@ cdef ( int, int) idx2pair( int idx, int nK):
         else:
             nelem += nK - curk
     return (k, l)
+
 
 
 ##### Genotype Calculations 
@@ -885,6 +910,253 @@ cpdef genCalc(aa,tt,rr,gg,u2p):
                 top[m,k]=0
                 bot[m,k]=0
     return logLikelihood,top,bot,jmk
+
+
+##### Genotype likelihood Calculations
+cdef double likprG( np.ndarray[ np.float64_t, ndim=1] gl, double pz, double t1, double t2):
+    cdef double rez
+    cdef int i
+    
+    rez = 0.0
+    ## g = 0
+    rez = np.exp(gl[0])*(1-t1)*(1-t2)
+    rez += np.exp(gl[1])*( t1*(1-t2) + (1-t1)*t2)
+    rez += np.exp(gl[2])*t1*t2
+    return rez
+
+cpdef likCalc(aa,tt,rr,ll,u2p):
+    cdef np.ndarray[np.float64_t, ndim=2] alpha=aa
+    cdef np.ndarray[np.float64_t,ndim=2] theta=tt
+    cdef np.ndarray[np.float64_t, ndim=2] rho=rr
+    cdef np.ndarray[np.int_t, ndim=2] lik=gg
+    cdef int up2pz=u2p
+
+    ## cython declarations
+    cdef int tScale
+    cdef double dummy,t1,t2
+    cdef double temp,tScaleTemp
+    cdef double normC
+    cdef intnLoc,nK
+    cdef int k,k1,k2,m
+    cdef double logLikelihood
+    ## end cython declarations
+
+    nLoc=alpha.shape[0]
+    nK=alpha.shape[1]
+    ##
+    ## compute backward probabilities
+    ##
+    cdef np.ndarray[np.int_t,ndim=1] betaScale=np.zeros(nLoc,dtype=np.int)
+    cdef np.ndarray[np.float64_t,ndim=2] tSumk=np.zeros((nLoc,nK),dtype=np.float64)
+    cdef np.ndarray[np.float64_t,ndim=1] tDoubleSum=np.zeros(nLoc,dtype=np.float64)
+    cdef np.ndarray[np.float64_t,ndim=3] mBeta=np.zeros((nLoc,nK,nK),dtype=np.float64)
+
+    for k1 in range(nK):
+        for k2 in range(nK):
+            mBeta[nLoc-1,k1,k2]=1
+    ## calc the marginal sum at locus M as in appendix A
+    for k1 in range(nK):
+        for k2 in range(nK):
+            tSumk[nLoc-1,k1] += likprG(theta[nLoc-1,k1],theta[nLoc-1,k2],lik[nLoc-1])*mBeta[nLoc-1,k1,k2]*alpha[nLoc-1,k2]
+        tDoubleSum[nLoc-1]+=tSumk[nLoc-1,k1]*alpha[nLoc-1,k1]
+    ## recurrent calculations backward
+    for m in range(nLoc-1,0,-1):
+        ## these loops could be parallelized across cluster pairs #CUDA
+        for k1 in range(nK):
+            for k2 in range(k1,nK):
+                temp=0.5*probJ(m,1,rho[m,0])*(tSumk[m,k1]+tSumk[m,k2])
+                temp+=probJ(m,0,rho[m,0])*likprG(theta[m,k1],theta[m,k2],lik[m])*mBeta[m,k1,k2]
+                mBeta[m-1,k1,k2]=temp+probJ(m,2,rho[m,0])*tDoubleSum[m]
+                mBeta[m-1,k2,k1]=mBeta[m-1,k1,k2]
+        ## marginal sum and real sum for loc m-1
+        for k1 in range(nK):
+            for k2 in range(nK):
+                tSumk[m-1,k1]+=likprG(theta[m-1,k1],theta[m-1,k2],lik[m-1])*mBeta[m-1,k1,k2]*alpha[m-1,k2]
+            tDoubleSum[m-1]+=tSumk[m-1,k1]*alpha[m-1,k1]
+        tScaleTemp=np.sum(mBeta[m-1])
+        ## tScaleTemp=0 a gerer <---
+        if tScaleTemp<1e-20:
+            tScale=20
+        else:
+            tScale=int(-log(tScaleTemp)/log(10))
+        if tScale <=0:
+            tScale=0
+        betaScale[m-1]=betaScale[m]+tScale
+        if tScale>0:
+            dummy=myPow10(tScale)
+            tDoubleSum[m-1]*=dummy
+            for k1 in range(nK):
+                tSumk[m-1,k1]*=dummy
+                mBeta[m-1,k1,k1]*=dummy
+                for k2 in range(k1+1,nK):
+                    mBeta[m-1,k1,k2]*=dummy
+                    mBeta[m-1,k2,k1]*=dummy
+    ##
+    ## compute forward probabilities
+    ##
+    cdef np.ndarray[np.float64_t,ndim=3] mPhi=np.zeros((nLoc,nK,nK),dtype=np.float64)
+    cdef np.ndarray[np.int_t,ndim=1] phiScale=np.zeros(nLoc,dtype=np.int)
+    ## at locus 0
+    for k1 in range(nK):
+        for k2 in range(k1,nK):
+            mPhi[0,k1,k2]=alpha[0,k1]*alpha[0,k2]*likprG(theta[0,k1],theta[0,k2],lik[0])
+            mPhi[0,k2,k1]=mPhi[0,k1,k2]
+    ## calc the marginal sum at locus 0 (appx A)
+    tDoubleSum[0]=0
+    for k1 in range(nK):
+        tSumk[0,k1]=0
+        for k2 in range(nK):
+            tSumk[0,k1]+=mPhi[0,k1,k2]
+        tDoubleSum[0]+=tSumk[0,k1]
+    tScale=0
+    if tDoubleSum[0] != 0:
+        tScale=int(-log(tDoubleSum[0])/log(10))
+        if tScale <0:
+            tScale=0
+        phiScale[0]=tScale
+        if tScale>0:
+            dummy=myPow10(tScale)
+            for k1 in range(nK):
+                tSumk[0,k1]*=dummy
+                mPhi[0,k1,k1]*=dummy
+                for k2 in range(k1+1,nK):
+                    mPhi[0,k1,k2]*=dummy
+                    mPhi[0,k2,k1]*=dummy
+    # do the reccurence
+    for m in range(nLoc-1):
+        ## This loop can be parallelized across cluster pairs #CUDA
+        for k1 in range(nK):
+            for k2 in range(k1,nK):
+                temp=alpha[m+1,k1]*tSumk[m,k2]+alpha[m+1,k2]*tSumk[m,k1]
+                temp*=0.5*probJ(m+1,1,rho[m+1,0])
+                temp+=probJ(m+1,0,rho[m+1,0])*mPhi[m,k1,k2]
+                temp+=probJ(m+1,2,rho[m+1,0])*alpha[m+1,k1]*alpha[m+1,k2]*tDoubleSum[m]
+                mPhi[m+1,k1,k2]=temp*likprG(theta[m+1,k1],theta[m+1,k2],lik[m+1])
+                mPhi[m+1,k2,k1]=mPhi[m+1,k1,k2]
+        tDoubleSum[m+1]=0
+        for k1 in range(nK):
+            tSumk[m+1,k1]=0
+            for k2 in range(nK):
+                tSumk[m+1,k1]+=mPhi[m+1,k1,k2]
+            tDoubleSum[m+1]+=tSumk[m+1,k1]
+        tScale=0
+        if tDoubleSum[m+1]<=0:
+            phiScale[m+1]=phiScale[m]
+        else:
+            tScale=int(-log(tDoubleSum[m+1])/log(10))
+            if tScale<0:
+                tScale=0
+            phiScale[m+1]=phiScale[m]+tScale
+            if tScale>0:
+                dummy=myPow10(tScale)
+                tDoubleSum[m+1]*=dummy
+                for k1 in range(nK):
+                    tSumk[m+1,k1]*=dummy
+                    mPhi[m+1,k1,k1]*=dummy
+                    for k2 in range(k1+1,nK):
+                        mPhi[m+1,k1,k2]*=dummy
+                        mPhi[m+1,k2,k1]*=dummy
+    ## end mPhi
+    logLikelihood=log(tDoubleSum[nLoc-1])/log(10)-phiScale[nLoc-1]
+    ##
+    ## compute Individual Contribution top,bottom,jmk
+    ##
+    # calc ProbZ
+    cdef np.ndarray[np.float64_t,ndim=3] probZ=mPhi*mBeta
+    cdef np.ndarray[np.float64_t,ndim=2] p_g_givX=np.zeros((nLoc,3),dtype=np.float64)
+    cdef np.ndarray[np.float64_t,ndim=2] jmk=np.zeros((nLoc,nK),dtype=np.float64)
+    cdef np.ndarray[np.float64_t,ndim=2] top=np.zeros((nLoc,nK),dtype=np.float64)
+    cdef np.ndarray[np.float64_t,ndim=2] bot=np.zeros((nLoc,nK),dtype=np.float64)
+    ## normalize
+    for m in range(nLoc):
+        normC=0
+        for k1 in range(nK):
+            normC+=probZ[m,k1,k1]
+            for k2 in range(k1+1,nK):
+                normC+=2*probZ[m,k1,k2]
+        probZ[m]/=normC
+    ## Calc P( G| X, pars)
+    ## Scheet Stephens, 2008, appendix page 5 P(xim|gi)
+    ## init at 0
+    for k1 in range(nK):
+        for k2 in range(k1,nK):
+            temp = alpha[0,k1]*alpha[0,k2]*mBeta[0,k1,k2]
+            p_g_givX[0,0] += temp*genprG(theta[0,k1],theta[0,k2],0) 
+            p_g_givX[0,1] += temp*genprG(theta[0,k1],theta[0,k2],1) 
+            p_g_givX[0,2] += temp*genprG(theta[0,k1],theta[0,k2],2)
+    p_g_givX[0,0] *= np.exp(lik[0,0])
+    p_g_givX[0,1] *= np.exp(lik[0,1])
+    p_g_givX[0,2] *= np.exp(lik[0,2])
+    normC = p_g_givX[0,0]+p_g_givX[0,1]+p_g_givX[0,2]
+    p_g_givX[0]/=normC
+            
+    for m in range(nLoc-1):
+        for k1 in range(nK):
+            for k2 in range(k1,nK):
+                temp=alpha[m+1,k1]*tSumk[m,k2]+alpha[m+1,k2]*tSumk[m,k1]
+                temp*=0.5*probJ(m+1,1,rho[m+1,0])
+                temp+=probJ(m+1,0,rho[m+1,0])*mPhi[m,k1,k2]
+                temp+=probJ(m+1,2,rho[m+1,0])*alpha[m+1,k1]*alpha[m+1,k2]*tDoubleSum[m]
+                temp*=mBeta[m+1,k1,k2]
+                p_g_givX[m+1,0] += temp*genprG(theta[m+1,k1],theta[m+1,k2],0)
+                p_g_givX[m+1,1] += temp*genprG(theta[m+1,k1],theta[m+1,k2],1)
+                p_g_givX[m+1,2] += temp*genprG(theta[m+1,k1],theta[m+1,k2],2)
+        p_g_givX[m+1,0] *= np.exp(lik[m+1,0])
+        p_g_givX[m+1,1] *= np.exp(lik[m+1,1])
+        p_g_givX[m+1,2] *= np.exp(lik[m+1,2])
+        normC = p_g_givX[m+1,0]+p_g_givX[m+1,1]+p_g_givX[m+1,2]
+        p_g_givX[m+1]/=normC
+                
+    if up2pz>0:
+        return probZ,p_g_givX
+    # calc jmk
+    for k1 in range(nK):
+        ##jmk[0,k1]=2*alpha[0,k1]
+        jmk[0, k1] = probZ[0,k1,k1] 
+        for k2 in range(nK):
+            jmk[0, k1] += probZ[0, k2, k1] 
+            
+    for m in range(1,nLoc):
+        dummy = myPow10(phiScale[m-1]+betaScale[m]-phiScale[nLoc-1])
+        for k in range(nK):
+            for k1 in range(nK):
+                temp = tSumk[ m-1, k1] * probJ(m,1,rho[m,0])
+                temp += 2 * probJ( m, 2, rho[m,0]) * tDoubleSum[m-1] * alpha[m,k1]
+                jmk[m,k] += temp * likprG( theta[m,k], theta[m,k1], lik[m]) * mBeta[m,k,k1]
+            jmk[m,k] *= alpha[m,k]
+            jmk[m,k] /= tDoubleSum[nLoc-1]
+            jmk[m,k] /= dummy
+    # calc top,bottom
+    for m in range(nLoc):
+        ## bottom
+        for k in range(nK):
+            bot[m,k]+=probZ[m,k,k]
+            for k1 in range(nK):
+                bot[m,k]+=probZ[m,k1,k]
+        # ## top
+        # if gen[m]==0:
+        #     for k in range(nK):
+        #         top[m,k]=0
+        # elif gen[m]==1:
+        #     for k in range(nK):
+        #         for k1 in range(nK):
+        #             t1=theta[m,k]*(1-theta[m,k1])
+        #             t2=t1+theta[m,k1]*(1-theta[m,k])
+        #             if (k == k1):
+        #                 top[m,k] += 2*probZ[m,k,k1]*t1/t2
+        #             else:
+        #                 top[m,k] += probZ[m,k,k1]*t1/t2
+        # elif gen[m]==2:
+        #     for k in range(nK):
+        #         top[m,k] += probZ[m,k,k]
+        #         for k1 in range(nK):
+        #             top[m,k] += probZ[m,k,k1]
+        # else:
+        #     for k in range(nK):
+        #         top[m,k]=0
+        #         bot[m,k]=0
+    return logLikelihood,top,bot,jmk
+
 
 #### Haplotype Calculations
     
