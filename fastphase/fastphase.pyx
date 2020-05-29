@@ -15,6 +15,7 @@ from multiprocessing import Pool, cpu_count
 import sys
 from functools import reduce
 from operator import add
+import itertools
 
 
 class fitInData():
@@ -184,7 +185,7 @@ class fastphase():
         except AssertionError:
             print("Wrong Genotype Size:",gen.shape[0],"is not",self.nLoci)
             raise
-    def addGenotypeLikelihoods(self, ID, lik):
+    def addGenotypeLikelihood(self, ID, lik):
         '''
         Add a matrix of genotype likelihoods to the model observations.
         lik is a numpy array of shape (nLoci,3).
@@ -227,21 +228,22 @@ class fastphase():
             print( '# Haplotypes',len(self.haplotypes), file=self.flog)
             print( '# Genotypes', len(self.genotypes), file=self.flog)
         old_log_like=1
-  
+
         for iEM in range(nstep):
    
             log_like=0.0
             par.initUpdate()
 
-            tasks =  [ fitInData( 'haplo', par.alpha,par.theta,par.rho,hap,0) for hap in  self.haplotypes.values()]
+            htasks = ( fitInData( 'haplo', par.alpha,par.theta,par.rho,hap,0) for hap in  self.haplotypes.values())
             if fast:
-                tasks += [ fitInData( 'haplo', par.alpha,par.theta,par.rho,fastphase.gen2hap(gen),0) for gen in  self.genotypes.values()]
+                gtasks = ( fitInData( 'haplo', par.alpha,par.theta,par.rho,fastphase.gen2hap(gen),0) for gen in  self.genotypes.values())
+                ltasks = ( )
             else:
-                tasks += [ fitInData( 'geno', par.alpha,par.theta,par.rho,gen,0) for gen in  self.genotypes.values()]
-                tasks += [ fitInData( 'lik', par.alpha,par.theta,par.rho,lik,0) for lik in  self.genolik.values()]
-            results = self.pool.map( fitter, tasks)
+                gtasks = ( fitInData( 'geno', par.alpha,par.theta,par.rho,gen,0) for gen in  self.genotypes.values())
+                ltasks = ( fitInData( 'lik', par.alpha,par.theta,par.rho,lik,0) for lik in  self.genolik.values())
+            tasks = itertools.chain(htasks,gtasks,ltasks)
 
-            for item in results:
+            for item in self.pool.imap_unordered( fitter, tasks):
                 par.addIndivFit(item.top,item.bot,item.jmk,item.val)
                 log_like += item.logLike
             if verbose:
@@ -296,19 +298,20 @@ class fastphase():
             gen_dat = ( ( imp[geno][0][ijump:ijump+2], nClus) for geno in self.genotypes.keys() for ijump in range(self.nLoci-1)  )
             for geno in self.genotypes.keys():
                 vit = imp[geno][0]
-                args = [(vit[ijump:ijump+2], nClus) for ijump in range(self.nLoci -1)]
+                args = ((vit[ijump:ijump+2], nClus) for ijump in range(self.nLoci -1))
                 ## res is [ np.array(nK,nK) , ... ,np.array(nK,nK)]
-                res = self.pool.map( calc_cost_matrix_geno, args, 100)
+                for i, res in enumerate( self.pool.imap( calc_cost_matrix_geno, args, 100)):
+                    cost_mat[i]+=res
                 ## " cost_mat += res "
-                cost_mat = list( map( add, cost_mat, res))
+                ##cost_mat = list( map( add, cost_mat, res))
             ### haplotypes
             for haplo in self.haplotypes.keys():
                 vit = imp[haplo][0]
-                args = [(vit[ijump:ijump+2], nClus) for ijump in range(self.nLoci -1)]
+                args = ((vit[ijump:ijump+2], nClus) for ijump in range(self.nLoci -1))
                 ## res is [ np.array(nK,nK) , ... ,np.array(nK,nK)]
-                res = self.pool.map( calc_cost_matrix_haplo, args, 100)
-                ## " cost_mat += res "
-                cost_mat = list( map( add, cost_mat, res))
+                for i,res in enumerate( self.pool.imap( calc_cost_matrix_haplo, args, 100)):
+                    cost_mat[i]+=res
+                ##cost_mat = list( map( add, cost_mat, res))
                 ##cost_mat += self.pool.map( calc_cost_matrix_haplo, args, 100)
             ## combine
             if verbose:
@@ -316,7 +319,9 @@ class fastphase():
                 self.flog.flush()
             ##cost_mat = cost_mat.reshape( ( self.nLoci-1, nClus, nClus))
             ##args = [ cost_mat[i] for i in range( self.nLoci-1)]
+
             res = np.array( self.pool.map( linear_sum_assignment, cost_mat,  100))
+
             permut = res[:,1,:]
             newpar = switch_pars( curpar, permut)
             if verbose:
@@ -339,64 +344,22 @@ class fastphase():
         return par_s
 
     def viterbi(self, parList):
-        tasks =  [ imputeInData('haplo',parList,self.nLoci,name,hap) for name, hap in  self.haplotypes.items()]
-        tasks += [ imputeInData('geno',parList,self.nLoci,name,gen) for name, gen in self.genotypes.items()]
-        results = self.pool.map( viterber, tasks)
+        htasks =  ( imputeInData('haplo',parList,self.nLoci,name,hap) for name, hap in  self.haplotypes.items())
+        gtasks = ( imputeInData('geno',parList,self.nLoci,name,gen) for name, gen in self.genotypes.items())
+        tasks = itertools.chain(htasks,gtasks)
         Imputations={}
-        for item in results:
+        for item in self.pool.imap_unordered( viterber, tasks):
             Imputations[item.name]=item.path
         return Imputations
 
     
-        # results=[]
-        # nblocks = len(tasks)//self.nproc
-        # reste = len(tasks)%self.nproc
-        # for ib in range(nblocks-1):
-        #     results += self.pool.map( viterber, tasks[ib*nproc:(ib+1)*nproc])
-
-        # Imputations={}
-        # for item in results:
-        #     Imputations[item.name]=item.path
-
-        # ## Memory efficient approach, only create nproc tasks at a time
-        # ib = 0
-        # tasks = []
-        # results = []
-
-        # ##### Haplotyps
-        # for name, hap in self.haplotypes.items():
-        #     tasks.append(imputeInData('haplo',parList,self.nLoci,name,hap))
-        #     ib += 1
-        #     if ib == self.nproc:
-        #         results += self.pool.map( viterber, tasks)
-        #         ib = 0
-        #         tasks = []
-        # ## finish the job
-        # if len(tasks) >0:
-        #     results += self.pool.map( viterber, tasks)
-        #     ib = 0
-        #     tasks=[]
-        # ##### Genotypes
-        # for name, gen in self.genotypes.items():
-        #     ib += 1
-        #     tasks.append(imputeInData('geno',parList,self.nLoci,name,gen))
-        #     if ib == self.nproc:
-        #         results += self.pool.map( viterber, tasks)
-        #         ib = 0
-        #         tasks = []
-        # ## finish the job
-        # if len(tasks) >0:
-        #     results += self.pool.map( viterber, tasks)
-        #     ib = 0
-        #     tasks=[]
-    
     def impute(self,parList):
-        tasks =  [ imputeInData('haplo',parList,self.nLoci,name,hap) for name, hap in  self.haplotypes.items()]
-        tasks += [ imputeInData('geno',parList,self.nLoci,name,gen) for name, gen in self.genotypes.items()]
-        tasks += [ imputeInData('lik',parList,self.nLoci,name,lik) for name, lik in self.genolik.items()]
-        results = self.pool.map( imputer, tasks)
+        htasks =  ( imputeInData('haplo',parList,self.nLoci,name,hap) for name, hap in  self.haplotypes.items())
+        gtasks = ( imputeInData('geno',parList,self.nLoci,name,gen) for name, gen in self.genotypes.items())
+        ltasks = ( imputeInData('lik',parList,self.nLoci,name,lik) for name, lik in self.genolik.items())
+        tasks = itertools.chain(htasks,gtasks,ltasks)
         Imputations={}
-        for item in results:
+        for item in self.pool.imap_unordered( imputer, tasks):
             Imputations[item.name]=(item.pgeno,item.pZ,item.path)
         return Imputations
 
@@ -415,7 +378,7 @@ def fitter( item):
         gLogLike,top,bot,jmk=genCalc(item.alpha,item.theta,item.rho,item.data,0)
         res = fitOutData(gLogLike,top,bot,jmk,2)
     elif item.type == 'lik':
-        lLogLike,top,bot,jmk=likCalc(item.alpha,imtem.theta,item.rho,item.data,0)
+        lLogLike,top,bot,jmk=likCalc(item.alpha,item.theta,item.rho,item.data,0)
         res = fitOutData(lLogLike,top,bot,jmk,2)
     return res
 
@@ -939,7 +902,7 @@ cpdef likCalc(aa,tt,rr,ll,u2p):
     cdef np.ndarray[np.float64_t, ndim=2] alpha=aa
     cdef np.ndarray[np.float64_t,ndim=2] theta=tt
     cdef np.ndarray[np.float64_t, ndim=2] rho=rr
-    cdef np.ndarray[np.int_t, ndim=2] lik=ll
+    cdef np.ndarray[np.float64_t, ndim=2] lik=ll
     cdef int up2pz=u2p
 
     ## cython declarations
