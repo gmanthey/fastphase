@@ -67,7 +67,7 @@ def optimfit_test():
             model.addHaplotype(ID,h)
         par_list=[]
         t0=time.time()
-        par=model.optimfit(nClus=5,nstep=20)
+        par=model.optimfit(nClus=5,nstep=10,verbose=True)
         par_list.append(par)
         model.flush()
         for ID,g in gens.items():

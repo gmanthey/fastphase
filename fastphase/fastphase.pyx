@@ -227,6 +227,7 @@ class fastphase():
             print( '# Loci', self.nLoci, file=self.flog)
             print( '# Haplotypes',len(self.haplotypes), file=self.flog)
             print( '# Genotypes', len(self.genotypes), file=self.flog)
+            print( '# Likelihoods', len(self.genolik), file=self.flog)
         old_log_like=1
 
         for iEM in range(nstep):
@@ -254,7 +255,58 @@ class fastphase():
         
         return par
 
-    def optimfit(self, nClus = 20, nstep = 10, params=None, verbose = False, rhomin=1e-6, alpha_up = False, fast=False, nEM = 10, niter=5):
+    def optimfit(self, nClus = 20, nstep = 10, params=None, verbose = False, rhomin=1e-6, alpha_up = False, fast=False, nEM = 5, niter=10):
+        """Fit a fastphase model by optimizing likelihood via minimizing cluster switches.
+
+        This method attempts to find an optimum (in terms of
+        likelihood) set of parameters for a fastphase model, with
+        equal weight clusters (by default). This is done by : 
+
+        0. Fit nEM fastphase models on the data and keep the best one
+        1. Then for niter successive iterations:
+            1.2. Compute viterbi path for each data point (genotypes and
+                 haplotypes). Warning : this step is in K^4 for genotype data
+                 so can be extremely slow. Ok for haplotype (phased) data.
+            1.3. Based on viterbi paths determine at each SNP interval if
+                 cluster labels should be switched using the Hungarian method
+                 (linear_sum_assignment).
+            1.4. Permute cluster labels to minimize switch and iterate again
+        2. At the last iteration the model is run for max(30,nstep) iterations 
+        to estimate the final set of parameters.
+        
+        Parameters
+        ----------
+
+        nClus : int
+            number of haplotype clusters
+        nstep : int
+            number of iteration for the EM algorithm
+        params : object
+            mod_params instance of starting parameters
+        verbose : bool
+            turn on verbosity
+        rhomin : float
+            minimum value for rho
+        alpha_up : bool
+            should the alphas be optimized or kept equal (default)
+        fast : boot
+            experimental, speed up computations at the expense of efficiency
+        nEM : int
+            number of starting EM fits
+        niter : int
+            number of iterations in the finale steps.
+            
+        Returns
+        -------
+        fastphase.mod_params 
+        
+        A set of parameters of a fastphase model.
+
+        Note 
+        ----
+        Computations are parallelized across available CPUs (see fastphase.nproc)
+
+        """
         liktraj = []
 
         try:
@@ -292,35 +344,20 @@ class fastphase():
             if verbose:
                 print("Calculating Costs",file=self.flog)
                 self.flog.flush()
-            ##cost_mat = np.zeros( (self.nLoci-1, nClus, nClus), dtype=np.float)
-            cost_mat = [ np.zeros( (nClus,nClus), dtype = np.float) for i in range(self.nLoci-1)]
-            ### Genotypes
-            gen_dat = ( ( imp[geno][0][ijump:ijump+2], nClus) for geno in self.genotypes.keys() for ijump in range(self.nLoci-1)  )
-            for geno in self.genotypes.keys():
-                vit = imp[geno][0]
-                args = ((vit[ijump:ijump+2], nClus) for ijump in range(self.nLoci -1))
-                ## res is [ np.array(nK,nK) , ... ,np.array(nK,nK)]
-                for i, res in enumerate( self.pool.imap( calc_cost_matrix_geno, args, 100)):
-                    cost_mat[i]+=res
-                ## " cost_mat += res "
-                ##cost_mat = list( map( add, cost_mat, res))
-            ### haplotypes
-            for haplo in self.haplotypes.keys():
-                vit = imp[haplo][0]
-                args = ((vit[ijump:ijump+2], nClus) for ijump in range(self.nLoci -1))
-                ## res is [ np.array(nK,nK) , ... ,np.array(nK,nK)]
-                for i,res in enumerate( self.pool.imap( calc_cost_matrix_haplo, args, 100)):
-                    cost_mat[i]+=res
-                ##cost_mat = list( map( add, cost_mat, res))
-                ##cost_mat += self.pool.map( calc_cost_matrix_haplo, args, 100)
+
+            cost_mat_tot = np.zeros( (self.nLoci-1, nClus, nClus), dtype=np.float)
+            hargs = ( ( np.array(imp[haplo][0],dtype=np.int32) , nClus) for haplo in self.haplotypes.keys())
+            for res in self.pool.imap_unordered(calc_cost_matrix_haplo_tot, hargs):
+                cost_mat_tot += res
+            gargs = ( ( np.array(imp[geno][0],dtype=np.int32) , nClus) for geno in self.genotypes.keys())
+            for res in self.pool.imap_unordered(calc_cost_matrix_geno_tot, gargs):
+                cost_mat_tot += res
+
             ## combine
             if verbose:
                 print("Computing optimum permutations",file=self.flog)
                 self.flog.flush()
-            ##cost_mat = cost_mat.reshape( ( self.nLoci-1, nClus, nClus))
-            ##args = [ cost_mat[i] for i in range( self.nLoci-1)]
-
-            res = np.array( self.pool.map( linear_sum_assignment, cost_mat,  100))
+            res = np.array( self.pool.map( linear_sum_assignment, cost_mat_tot,  100))
 
             permut = res[:,1,:]
             newpar = switch_pars( curpar, permut)
@@ -454,7 +491,9 @@ def imputer( item):
 
 ##### Cluster switch functions
 
-cpdef np.ndarray[np.float64_t, ndim=3] calc_cost_matrix_haplo_tot( np.ndarray[np.int32_t, ndim=1] h, int nK ):
+cpdef np.ndarray[np.float64_t, ndim=3] calc_cost_matrix_haplo_tot( args ):
+    cdef np.ndarray[np.int32_t, ndim=1] h = args[0]
+    cdef int nK = args[1]
     cdef int l,nL
     nL= h.shape[0]
     cdef np.ndarray[np.float64_t, ndim=3] res = np.zeros( ( nL-1, nK, nK), dtype=np.float64)
@@ -471,35 +510,17 @@ def calc_cost_matrix_haplo( args):
     cost_mat[k, kp] -= 1
     return cost_mat
 
-# cpdef np.ndarray[np.float64_t, ndim=3] calc_cost_matrix_geno_tot( np.ndarray[np.int32_t, ndim=2] g, int nK ):
-#     cdef int l,nL
-#     cdef int k1, k2, kp1, kp2
-#     nL= g.shape[0]
-#     cdef np.ndarray[np.float64_t, ndim=3] res = np.zeros( ( nL-1, nK, nK), dtype=np.float64)
+cpdef np.ndarray[np.float64_t, ndim=3] calc_cost_matrix_geno_tot( args):
+    cdef np.ndarray[np.int32_t, ndim=2] g = args[0]
+    cdef int nK = args[1]
+    cdef int l,nL
+    cdef int k1, k2, kp1, kp2
+    nL= g.shape[0]
+    cdef np.ndarray[np.float64_t, ndim=3] res = np.zeros( ( nL-1, nK, nK), dtype=np.float64)
 
-#     for l in range(nL -1):
-#         if (k1 == kp1):
-#             if (k2 == kp2): ## k1 == kp1 & k2 == kp2 , possibly k1 == k2
-#                 res[l, k1, kp1] -= 1
-#                 res[l, k2, kp2] -= 1
-#             else: ## k1 == kp1 & k2 != kp2
-#                 res[l, k1, kp1] -= 1 ## diagonal
-#                 res[l, k2, kp2] -= 1
-#         elif ( k2 == kp2): ## k1 != kp1 & k2 == kp2
-#             res[l, k1, kp1] -= 1 ## diagonal
-#             res[l, k2, kp2] -= 1
-#         elif ( k1 == kp2) and (k2 != kp1):
-#             res[l, k1, kp2] -= 1 ## diagonal
-#             res[l, k2, kp1] -= 1
-#         elif ( k1 != kp2) and (k2 == kp1):
-#             res[l, k1, kp2] -= 1 ## diagonal
-#             res[k2, kp1] -= 1
-#         else:
-#             res[l, k1, kp1] -= 0.5
-#             res[l, k1, kp2] -= 0.5
-#             res[l, k2, kp1] -= 0.5
-#             res[l, k2, kp2] -= 0.5
-#     return res
+    for l in range(nL -1):
+        res[l,] = calc_cost_matrix_geno( [ g[l:(l+2),], nK] )
+    return res
 
 def calc_cost_matrix_geno( args):
     vit, nK = args
