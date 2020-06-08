@@ -34,7 +34,9 @@ def my_build_ext(pars):
 
 extensions=[
     Extension('fastphase.fastphase',
-              sources = ["fastphase/fastphase"+ext])
+              sources = ["fastphase/fastphase"+ext]),
+    Extension('fastphase.calc_func',
+              sources = ["fastphase/calc_func"+ext])
     ]
 
 if cython:
@@ -44,7 +46,7 @@ if cython:
 
 setup(
     name = 'fastphase',
-    version = '1.2-dev',
+    version = '2.0-dev',
     description = 'Python implementation of the fastPHASE model',
     long_description = read('README.md'),
     license = "LGPL v3",
@@ -56,7 +58,9 @@ setup(
     setup_requires = [ 'numpy' ],
     install_requires = [
         'numpy',
-        'scipy'
+        'scipy',
+        'psutil',
+        'ray'
         ],
     ext_modules = extensions,
     classifiers = [

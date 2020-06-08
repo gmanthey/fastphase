@@ -1,4 +1,4 @@
-from fastphase import fastphase as fph
+from fastphase import fastphase_ray as fph
 import numpy as np
 import time
     
@@ -35,8 +35,8 @@ def simple_test(nEM=1):
 
     
     with fph.fastphase(9) as model:
-        ## c'est parti
-        for ID,h in haps.items():
+        ##c'est parti
+        for ID, h in haps.items():
             model.addHaplotype(ID,h)
         for ID,g in gens.items():
             model.addGenotype(ID,g)
@@ -51,12 +51,12 @@ def simple_test(nEM=1):
             t1=time.time()
             print('Simple test:',n,t1-t0,'seconds')
         model.flush()
-        for ID,h in haps.items():
-            model.addHaplotype(ID,h)
-        imp=model.impute(par_list)
-        for ID,h in haps.items():
-            print(ID)
-            print(' '.join([str(x)+' ( '+str(y)+' ) ' for y,x in zip(h,imp[ID][0])]))
+        # for ID,h in haps.items():
+        #     model.addHaplotype(ID,h)
+        # imp=model.impute(par_list)
+        # for ID,h in haps.items():
+        #     print(ID)
+        #     print(' '.join([str(x)+' ( '+str(y)+' ) ' for y,x in zip(h,imp[ID][0])]))
 
 def optimfit_test():
     with fph.fastphase(9) as model:
@@ -87,5 +87,5 @@ def optimfit_test():
     
 if __name__=='__main__':
     simple_test(nEM=10)
-    ##optimfit_test()
+##    optimfit_test()
 
