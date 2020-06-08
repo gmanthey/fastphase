@@ -44,7 +44,7 @@ if cython:
 
 setup(
     name = 'fastphase',
-    version = '1.0',
+    version = '1.2-dev',
     description = 'Python implementation of the fastPHASE model',
     long_description = read('README.md'),
     license = "LGPL v3",

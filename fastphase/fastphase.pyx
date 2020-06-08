@@ -244,7 +244,7 @@ class fastphase():
                 ltasks = ( fitInData( 'lik', par.alpha,par.theta,par.rho,lik,0) for lik in  self.genolik.values())
             tasks = itertools.chain(htasks,gtasks,ltasks)
 
-            for item in self.pool.imap_unordered( fitter, tasks):
+            for item in self.pool.imap_unordered( fitter, tasks, chunksize=10):
                 par.addIndivFit(item.top,item.bot,item.jmk,item.val)
                 log_like += item.logLike
             if verbose:
@@ -347,17 +347,17 @@ class fastphase():
 
             cost_mat_tot = np.zeros( (self.nLoci-1, nClus, nClus), dtype=np.float)
             hargs = ( ( np.array(imp[haplo][0],dtype=np.int32) , nClus) for haplo in self.haplotypes.keys())
-            for res in self.pool.imap_unordered(calc_cost_matrix_haplo_tot, hargs):
+            for res in self.pool.imap_unordered(calc_cost_matrix_haplo_tot, hargs, chunksize=10):
                 cost_mat_tot += res
             gargs = ( ( np.array(imp[geno][0],dtype=np.int32) , nClus) for geno in self.genotypes.keys())
-            for res in self.pool.imap_unordered(calc_cost_matrix_geno_tot, gargs):
+            for res in self.pool.imap_unordered(calc_cost_matrix_geno_tot, gargs, chunksize=10):
                 cost_mat_tot += res
 
             ## combine
             if verbose:
                 print("Computing optimum permutations",file=self.flog)
                 self.flog.flush()
-            res = np.array( self.pool.map( linear_sum_assignment, cost_mat_tot,  100))
+            res = np.array( self.pool.map( linear_sum_assignment, cost_mat_tot,  1000))
 
             permut = res[:,1,:]
             newpar = switch_pars( curpar, permut)
