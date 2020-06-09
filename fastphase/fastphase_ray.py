@@ -8,6 +8,12 @@ hap_calc = ray.remote(calc_func.hapCalc)
 gen_calc = ray.remote(calc_func.genCalc)
 lik_calc = ray.remote(calc_func.likCalc)
 
+def hap_p_all(hap, pz, theta):
+    L = hap.shape[0]
+    K = pz.shape[1]
+    rez = np.where( hap <0, np.einsum( 'lk->l', pz*theta), np.einsum( 'lk,l->l',pz, hap))
+    return rez
+
 class modParams():
     '''
     A class for fastphase model parameters.
@@ -246,3 +252,32 @@ class fastphase():
         
         return par
 
+    def impute(self,parList):
+        Imputations = {}
+        for hap in self.haplotypes:
+            Imputations[hap] = [ np.zeros( self.nLoci, dtype=np.float), []] ## P_geno, probZ, Path
+        for gen in self.genotypes:
+            Imputations[gen] = ( np.zeros( self.nLoci, dtype=np.float), []) ## P_geno, probZ, Path
+        for lik in self.genolik:
+            Imputations[lik] = ( np.zeros( (self.nLoci,3), dtype=np.float), []) ## P_geno, probZ, Path
+        x = 1.0/len(parList)
+        
+        for par in parList:
+            alpha = ray.put(par.alpha)
+            theta = ray.put(par.theta)
+            rho = ray.put(par.rho)
+            ## Haplotypes
+            result_map = {}
+            result_ids = []
+            for name,hap in self.haplotypes.items():
+                result_id = hap_calc.remote(alpha, theta, rho, hap, 1)
+                result_map[result_id] = name
+                result_ids.append(result_id)
+            while len(result_ids):
+                item, result_ids = ray.wait(result_ids)
+                pZ = ray.get(item)[0]
+                name = result_map[item[0]]
+                Imputations[name][0] += x*hap_p_all( ray.get(self.haplotypes[name]), pZ, ray.get(theta))
+                Imputations[name][1].append(pZ)
+
+        return Imputations

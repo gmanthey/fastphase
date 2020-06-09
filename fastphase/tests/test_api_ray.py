@@ -51,12 +51,13 @@ def simple_test(nEM=1):
             t1=time.time()
             print('Simple test:',n,t1-t0,'seconds')
         model.flush()
-        # for ID,h in haps.items():
-        #     model.addHaplotype(ID,h)
-        # imp=model.impute(par_list)
-        # for ID,h in haps.items():
-        #     print(ID)
-        #     print(' '.join([str(x)+' ( '+str(y)+' ) ' for y,x in zip(h,imp[ID][0])]))
+        for ID,h in haps.items():
+            model.addHaplotype(ID,h)
+        imp=model.impute(par_list)
+        print(imp)
+        for ID,h in haps.items():
+            print(ID)
+            print(' '.join([str(x)+' ( '+str(y)+' ) ' for y,x in zip(h,imp[ID][0])]))
 
 def optimfit_test():
     with fph.fastphase(9) as model:
@@ -86,6 +87,6 @@ def optimfit_test():
         print('Optimfit test:',t1-t0,'seconds')
     
 if __name__=='__main__':
-    simple_test(nEM=10)
+    simple_test(nEM=2)
 ##    optimfit_test()
 
