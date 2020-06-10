@@ -10,6 +10,9 @@ hap_calc = ray.remote(calc_func.hapCalc)
 gen_calc = ray.remote(calc_func.genCalc)
 lik_calc = ray.remote(calc_func.likCalc)
 
+hap_viterbi = ray.remote(calc_func.hapViterbi)
+gen_viterbi = ray.remote(calc_func.genViterbi)
+
 @ray.remote
 def hap_p_all(hap, pz, theta):
     L = hap.shape[0]
@@ -132,7 +135,7 @@ class fastphase():
 
     def __exit__(self,*args):
         if self.init_ray:
-            print("Killing ray")
+            print("Shutdown ray")
             ray.shutdown()
         if self.prfx is not None:
             self.flog.close()
@@ -289,16 +292,16 @@ class fastphase():
                 result_id = hap_p_all.remote(hap, pz_id, theta)
                 result_map[result_id] = name
                 result_ids.append(result_id)
-            while len(result_ids):
-                item, result_ids = ray.wait(result_ids)
-                pall = ray.get(item)[0]
-                name = result_map[item[0]]
-                Imputations[name][0] += x*pall
-                Imputations[name][1].append(ray.get(pz_map[name]))
-            ## Genotypes
-            result_map = {} ## maps result_id (P(G|theta)) -> name
-            pz_map = {} ## maps name -> P(Z|G)
-            result_ids = []
+            # while len(result_ids):
+            #     item, result_ids = ray.wait(result_ids)
+            #     pall = ray.get(item)[0]
+            #     name = result_map[item[0]]
+            #     Imputations[name][0] += x*pall
+            #     Imputations[name][1].append(ray.get(pz_map[name]))
+            # ## Genotypes
+            # result_map = {} ## maps result_id (P(G|theta)) -> name
+            # pz_map = {} ## maps name -> P(Z|G)
+            # result_ids = []
             for name,gen in self.genotypes.items():
                 pz_id = gen_calc.remote(alpha, theta, rho, gen, 1)
                 pz_map[name]=pz_id
@@ -324,5 +327,33 @@ class fastphase():
                 name = result_map[item[0]]
                 Imputations[name][0] += x*pgeno
                 Imputations[name][1].append(pZ)
-
         return Imputations
+    def viterbi( self, parList):
+        Imputations = {}
+        for hap in self.haplotypes:
+            Imputations[hap] = []
+        for gen in self.genotypes:
+            Imputations[gen] = []
+        for par in parList:
+            alpha = ray.put(par.alpha)
+            theta = ray.put(par.theta)
+            rho = ray.put(par.rho)
+            result_map = {}
+            result_ids = []
+            ## Haplotypes
+            for name,hap in self.haplotypes.items():
+                result_id = hap_viterbi.remote( alpha, theta, rho, hap)
+                result_map[result_id] = name
+                result_ids.append(result_id)
+            ## Genotypes
+            for name,gen in self.genotypes.items():
+                result_id = gen_viterbi.remote( alpha, theta, rho, gen)
+                result_map[result_id] = name
+                result_ids.append(result_id)
+            while len(result_ids):
+                item, result_ids = ray.wait(result_ids)
+                pth = ray.get(item)[0]
+                name = result_map[item[0]]
+                Imputations[name].append( pth)
+        return Imputations
+       
