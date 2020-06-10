@@ -4,16 +4,29 @@ import numpy as np
 import ray
 from fastphase import calc_func
 
+### RAY FUNCTIONS
+
 hap_calc = ray.remote(calc_func.hapCalc)
 gen_calc = ray.remote(calc_func.genCalc)
 lik_calc = ray.remote(calc_func.likCalc)
 
+@ray.remote
 def hap_p_all(hap, pz, theta):
     L = hap.shape[0]
     K = pz.shape[1]
     rez = np.where( hap <0, np.einsum( 'lk->l', pz*theta), np.einsum( 'lk,l->l',pz, hap))
     return rez
 
+@ray.remote
+def gen_p_geno(gen, pz, theta):
+    L = gen.shape[0]
+    K = pz.shape[1]
+    O = np.ones(K)
+    theta_sum_mat = np.array([np.kron(O,t).reshape(K,K)+np.kron(t,O).reshape(K,K) for t in theta])
+    rez = np.where(gen <0, np.einsum( 'lkk->l', pz*theta_sum_mat), np.einsum('lkk,l->l', pz, gen))
+    return rez
+
+### CLASSES
 class modParams():
     '''
     A class for fastphase model parameters.
@@ -93,7 +106,7 @@ class fastphase():
     with fastphase(nloc, nproc) as fph:
          ... do stuff ...
     '''
-    def __init__(self, nLoci, nproc = psutil.cpu_count(logical=False),prfx=None):
+    def __init__(self, nLoci, nproc = psutil.cpu_count(),prfx=None):
         assert nLoci>0
         self.nLoci=nLoci
         self.haplotypes={}
@@ -257,9 +270,9 @@ class fastphase():
         for hap in self.haplotypes:
             Imputations[hap] = [ np.zeros( self.nLoci, dtype=np.float), []] ## P_geno, probZ, Path
         for gen in self.genotypes:
-            Imputations[gen] = ( np.zeros( self.nLoci, dtype=np.float), []) ## P_geno, probZ, Path
+            Imputations[gen] = [ np.zeros( self.nLoci, dtype=np.float), []] ## P_geno, probZ, Path
         for lik in self.genolik:
-            Imputations[lik] = ( np.zeros( (self.nLoci,3), dtype=np.float), []) ## P_geno, probZ, Path
+            Imputations[lik] = [ np.zeros( (self.nLoci,3), dtype=np.float), []] ## P_geno, probZ, Path
         x = 1.0/len(parList)
         
         for par in parList:
@@ -268,16 +281,48 @@ class fastphase():
             rho = ray.put(par.rho)
             ## Haplotypes
             result_map = {}
+            pz_map = {} ## maps name -> P(Z|G)
             result_ids = []
             for name,hap in self.haplotypes.items():
-                result_id = hap_calc.remote(alpha, theta, rho, hap, 1)
+                pz_id = hap_calc.remote(alpha, theta, rho, hap, 1)
+                pz_map[name]=pz_id
+                result_id = hap_p_all.remote(hap, pz_id, theta)
                 result_map[result_id] = name
                 result_ids.append(result_id)
             while len(result_ids):
                 item, result_ids = ray.wait(result_ids)
-                pZ = ray.get(item)[0]
+                pall = ray.get(item)[0]
                 name = result_map[item[0]]
-                Imputations[name][0] += x*hap_p_all( ray.get(self.haplotypes[name]), pZ, ray.get(theta))
+                Imputations[name][0] += x*pall
+                Imputations[name][1].append(ray.get(pz_map[name]))
+            ## Genotypes
+            result_map = {} ## maps result_id (P(G|theta)) -> name
+            pz_map = {} ## maps name -> P(Z|G)
+            result_ids = []
+            for name,gen in self.genotypes.items():
+                pz_id = gen_calc.remote(alpha, theta, rho, gen, 1)
+                pz_map[name]=pz_id
+                result_id = gen_p_geno.remote(gen, pz_id, theta)
+                result_map[result_id] = name
+                result_ids.append(result_id)
+            while len(result_ids):
+                item, result_ids = ray.wait(result_ids)
+                pgeno = ray.get(item)[0]
+                name = result_map[item[0]]
+                Imputations[name][0] += x*pgeno
+                Imputations[name][1].append(ray.get(pz_map[name]))
+            ## Genotype Likelihoods
+            result_map = {} ## maps result_id (P(G|theta)) -> name
+            result_ids = []
+            for name,lik in self.genolik.items():
+                result_id = lik_calc.remote(alpha, theta, rho, lik, 1)
+                result_map[result_id] = name
+                result_ids.append(result_id)
+            while len(result_ids):
+                item, result_ids = ray.wait(result_ids)
+                pZ,pgeno = ray.get(item)[0]
+                name = result_map[item[0]]
+                Imputations[name][0] += x*pgeno
                 Imputations[name][1].append(pZ)
 
         return Imputations

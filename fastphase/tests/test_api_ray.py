@@ -49,15 +49,30 @@ def simple_test(nEM=1):
             par=model.fit(nClus=5,nstep=20)
             par_list.append(par)
             t1=time.time()
-            print('Simple test:',n,t1-t0,'seconds')
+            print('[simple] Fitting :',n,t1-t0,'seconds')
         model.flush()
         for ID,h in haps.items():
             model.addHaplotype(ID,h)
+        for ID,g in gens.items():
+            model.addGenotype(ID,g)
+        for ID,pg in genprobs.items():
+            model.addGenotypeLikelihood(ID,pg)
+        t0=time.time()
         imp=model.impute(par_list)
-        print(imp)
+        t1=time.time()
+        print('[simple] Imputing :',n,t1-t0,'seconds')
         for ID,h in haps.items():
             print(ID)
-            print(' '.join([str(x)+' ( '+str(y)+' ) ' for y,x in zip(h,imp[ID][0])]))
+            print(' '.join([str(x)+'('+str(y)+')' for y,x in zip(h,imp[ID][0])]))
+            print(*np.round(np.sum(imp[ID][1][0],axis=1),decimals=2))
+        for ID,h in haps.items():
+            print(ID)
+            print(' '.join([str(x)+'('+str(y)+')' for y,x in zip(h,imp[ID][0])]))
+            print(*np.round(np.sum(imp[ID][1][0],axis=1),decimals=2))
+        for ID,h in haps.items():
+            print(ID)
+            print(' '.join([str(x)+'('+str(y)+')' for y,x in zip(h,imp[ID][0])]))
+            print(*np.round(np.sum(imp[ID][1][0],axis=1),decimals=2))
 
 def optimfit_test():
     with fph.fastphase(9) as model:
@@ -87,6 +102,6 @@ def optimfit_test():
         print('Optimfit test:',t1-t0,'seconds')
     
 if __name__=='__main__':
-    simple_test(nEM=2)
+    simple_test(nEM=10)
 ##    optimfit_test()
 
