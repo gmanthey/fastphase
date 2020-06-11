@@ -27,6 +27,7 @@ def gen_p_geno(gen, pz, theta):
     return rez
 
 ### CLASSES
+
 class modParams():
     '''
     A class for fastphase model parameters.
@@ -64,33 +65,40 @@ class modParams():
     def update(self):
         ''' Update parameters using top,bot,jmk jm probabilities'''
         ## rho
-        ##self.rho=self.jm/self.nhap
-        for i in range(self.nLoc):
-            self.rho[i,0]=self.jm[i,0]/self.nhap
-            if self.rho[i,0]<self.rhomin:
-                self.rho[i,0]=self.rhomin
-            elif self.rho[i,0]>(1-self.rhomin):
-                self.rho[i,0]=1-self.rhomin
+        self.rho=self.jm/self.nhap
+        self.rho = np.where(self.rho<0, self.rhomin, self.rho)
+        # for i in range(self.nLoc):
+        #     self.rho[i,0]=self.jm[i,0]/self.nhap
+        #     if self.rho[i,0]<self.rhomin:
+        #         self.rho[i,0]=self.rhomin
+        #     elif self.rho[i,0]>(1-self.rhomin):
+        #         self.rho[i,0]=1-self.rhomin
         ## alpha
-        #self.alpha=self.jmk/self.jm
         if self.alpha_up:
-            for i in range(self.nLoc):
-                for j in range(self.nClus):
-                    self.alpha[i,j]=self.jmk[i,j]/self.jm[i,0]
-                    if self.alpha[i,j]>=0.999:
-                        self.alpha[i,j]=0.999
-                    elif self.alpha[i,j]<0.001:
-                        self.alpha[i,j]=0.001
-                self.alpha[i,:] /= np.sum(self.alpha[i,:])
+            self.alpha = self.jmk/self.jm
+            self.alpha = np.where( self.alpha>0.999,0.999,self.alpha)
+            self.alpha = np.where( self.alpha<0.001,0.001,self.alpha)
+            self.alpha /= np.sum(self.alpha, axis=1, keepdims=True)
+        # if self.alpha_up:
+        #     for i in range(self.nLoc):
+        #         for j in range(self.nClus):
+        #             self.alpha[i,j]=self.jmk[i,j]/self.jm[i,0]
+        #             if self.alpha[i,j]>=0.999:
+        #                 self.alpha[i,j]=0.999
+        #             elif self.alpha[i,j]<0.001:
+        #                 self.alpha[i,j]=0.001
+        #         self.alpha[i,:] /= np.sum(self.alpha[i,:])
         ## theta
         if self.theta_up:
             self.theta=self.top/self.bot
-            for i in range(self.nLoc):
-                for j in range(self.nClus):
-                    if self.theta[i,j]>0.999:
-                        self.theta[i,j]=0.999
-                    elif self.theta[i,j]<0.001:
-                        self.theta[i,j]=0.001
+            self.theta = np.where(self.theta>0.999,0.999,self.theta)
+            self.theta = np.where(self.theta<0.001,0.001,self.theta)
+            # for i in range(self.nLoc):
+            #     for j in range(self.nClus):
+            #         if self.theta[i,j]>0.999:
+            #             self.theta[i,j]=0.999
+            #         elif self.theta[i,j]<0.001:
+            #             self.theta[i,j]=0.001
     def write(self,stream=sys.stdout):
         print("snp", *["t"+str(i) for i in range(self.nClus)], "rho", *["a"+str(i) for i in range(self.nClus)], file=stream)
         for i in range(self.nLoc):
