@@ -1,4 +1,5 @@
-from fastphase import fastphase_ray as fph
+from fastphase import fastphase_ray as fph_ray
+from fastphase import fastphase as fph_mp
 import numpy as np
 import time
     
@@ -12,11 +13,13 @@ def gl_func( val ,difflik = 10.0):
     else:
         return np.array([difflik, difflik, difflik])
 
+N = 9
+K=5
 haps={}
-haps['H1']=np.array([0,0,0,1,-1,0,1,1,0],dtype=np.int)
-haps['H2']=np.array([1,0,0,1,0,0,1,1,0],dtype=np.int)
-haps['H3']=np.array([0,0,0,0,1,1,0,0,1],dtype=np.int)
-haps['H4']=np.array([1,1,1,0,1,0,1,1,0],dtype=np.int)
+haps['H1']=np.array([1,0,1,0,1,0,1,0,1],dtype=np.int)
+haps['H2']=np.array([1,1,1,1,1,1,1,1,1],dtype=np.int)
+haps['H3']=np.array([0,1,0,1,0,1,0,1,0],dtype=np.int)
+haps['H4']=np.array([0,0,0,0,0,0,0,0,0],dtype=np.int)
 
 gens={}
 gens['G1']=haps['H1']+haps['H2']
@@ -31,10 +34,14 @@ for k,v in gens.items():
         pg[l,] = gl_func(v[l])
     genprobs['p'+k] = pg
 
-def simple_test(nEM=1):
+def simple_test(nEM,implementation,**kwargs):
 
-    
-    with fph.fastphase(9) as model:
+    if implementation=='MP':
+        fph=fph_mp
+    else:
+        fph=fph_ray
+    print("Running simple test with",implementation)
+    with fph.fastphase(N) as model:
         ##c'est parti
         for ID, h in haps.items():
             model.addHaplotype(ID,h)
@@ -46,7 +53,7 @@ def simple_test(nEM=1):
         for n in range(nEM):
             t0=time.time()
             print("EM",n)
-            par=model.fit(nClus=5,nstep=20)
+            par=model.fit(**kwargs)
             par_list.append(par)
             t1=time.time()
             print('[simple] Fitting :',n,t1-t0,'seconds')
@@ -73,7 +80,15 @@ def simple_test(nEM=1):
             print(ID)
             print(' '.join([str(x)+'('+str(y)+')' for y,x in zip(h,imp[ID][0])]))
             print(*np.round(np.sum(imp[ID][1][0],axis=1),decimals=2))
-
+        t0=time.time()
+        imp=model.viterbi(par_list)
+        t1=time.time()
+        par_list[0].write()
+        print('[simple] Viterbi :',n,t1-t0,'seconds')
+        for ID,results in imp.items():
+            for  pth in results:
+                print(ID,'-'.join( map(str,pth)))
+   
 def optimfit_test():
     with fph.fastphase(9) as model:
         ## c'est parti
@@ -85,7 +100,7 @@ def optimfit_test():
             model.addHaplotype(ID,h)
         par_list=[]
         t0=time.time()
-        par=model.optimfit(nClus=5,nstep=10,verbose=True)
+        par=model.optimfit(nClus=K,nstep=10,verbose=True)
         par_list.append(par)
         model.flush()
         for ID,g in gens.items():
@@ -102,6 +117,8 @@ def optimfit_test():
         print('Optimfit test:',t1-t0,'seconds')
     
 if __name__=='__main__':
-    simple_test(nEM=10)
+    start_pars = fph_mp.modParams(N,K)
+    simple_test(1, "MP", nClus=K, params=start_pars)
+    simple_test(1, "RAY", nClus=K, params=start_pars)
 ##    optimfit_test()
 
