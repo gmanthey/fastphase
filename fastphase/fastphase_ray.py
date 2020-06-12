@@ -2,6 +2,7 @@ import sys
 import psutil
 import numpy as np
 import ray
+from scipy.optimize import linear_sum_assignment
 from fastphase import calc_func
 
 ### RAY FUNCTIONS
@@ -29,6 +30,49 @@ def gen_p_geno(gen, pz, theta):
     rez = np.where(gen <0, np.einsum( 'lkk->l', pz*theta_sum_mat), np.einsum('lkk,l->l', pz, gen))
     return rez
 
+@ray.remote
+def calc_cost_matrix_haplo( h, nK ):
+    nL= h.shape[0]
+    res = np.zeros( ( nL-1, nK, nK), dtype=np.float)
+    for l in range(nL -1):
+        res[l, h[l], h[l+1]] -= 1
+    return res
+
+@ray.remote
+def calc_cost_matrix_geno( g, nK):
+    nL= g.shape[0]
+    res = np.zeros( ( nL-1, nK, nK), dtype=np.float)
+    for l in range(nL -1):
+        res[l,] = calc_cost_matrix_geno_item( g[l:(l+2),], nK )
+    return res
+
+def calc_cost_matrix_geno_item( vit, nK):
+    k1, k2 = vit[0]
+    kp1, kp2 = vit[1]
+    cost_mat = np.zeros((nK,nK))
+    if (k1 == kp1):
+        if (k2 == kp2): ## k1 == kp1 & k2 == kp2 , possibly k1 == k2
+            cost_mat[k1, kp1] -= 1
+            cost_mat[k2, kp2] -= 1
+        else: ## k1 == kp1 & k2 != kp2
+            cost_mat[k1, kp1] -= 1 ## diagonal
+            cost_mat[k2, kp2] -= 1
+    elif ( k2 == kp2): ## k1 != kp1 & k2 == kp2
+        cost_mat[k1, kp1] -= 1 ## diagonal
+        cost_mat[k2, kp2] -= 1
+    elif ( k1 == kp2) and (k2 != kp1):
+        cost_mat[k1, kp2] -= 1 ## diagonal
+        cost_mat[k2, kp1] -= 1
+    elif ( k1 != kp2) and (k2 == kp1):
+        cost_mat[k1, kp2] -= 1 ## diagonal
+        cost_mat[k2, kp1] -= 1
+    else:
+        cost_mat[ k1, kp1] -= 0.5
+        cost_mat[ k1, kp2] -= 0.5
+        cost_mat[ k2, kp1] -= 0.5
+        cost_mat[ k2, kp2] -= 0.5
+    return cost_mat
+
 ### CLASSES
 
 class modParams():
@@ -47,7 +91,6 @@ class modParams():
         self.nClus=nClus
         self.theta=0.98*np.random.random((nLoc,nClus))+0.01 # avoid bounds 0 and 1
         self.rho=np.ones((nLoc,1))/1000
-        ##self.alpha=np.random.mtrand.dirichlet(np.ones(nClus),nLoc) # make sure sum(alpha_is)=1
         self.alpha=1.0/nClus*np.ones((nLoc,nClus))
         self.rhomin=rhomin
         self.alpha_up = alpha_up
@@ -70,38 +113,17 @@ class modParams():
         ## rho
         self.rho=self.jm/self.nhap
         self.rho = np.where(self.rho<0, self.rhomin, self.rho)
-        # for i in range(self.nLoc):
-        #     self.rho[i,0]=self.jm[i,0]/self.nhap
-        #     if self.rho[i,0]<self.rhomin:
-        #         self.rho[i,0]=self.rhomin
-        #     elif self.rho[i,0]>(1-self.rhomin):
-        #         self.rho[i,0]=1-self.rhomin
         ## alpha
         if self.alpha_up:
             self.alpha = self.jmk/self.jm
             self.alpha = np.where( self.alpha>0.999,0.999,self.alpha)
             self.alpha = np.where( self.alpha<0.001,0.001,self.alpha)
             self.alpha /= np.sum(self.alpha, axis=1, keepdims=True)
-        # if self.alpha_up:
-        #     for i in range(self.nLoc):
-        #         for j in range(self.nClus):
-        #             self.alpha[i,j]=self.jmk[i,j]/self.jm[i,0]
-        #             if self.alpha[i,j]>=0.999:
-        #                 self.alpha[i,j]=0.999
-        #             elif self.alpha[i,j]<0.001:
-        #                 self.alpha[i,j]=0.001
-        #         self.alpha[i,:] /= np.sum(self.alpha[i,:])
         ## theta
         if self.theta_up:
-            self.theta=self.top/self.bot
+            self.theta = self.top/self.bot
             self.theta = np.where(self.theta>0.999,0.999,self.theta)
             self.theta = np.where(self.theta<0.001,0.001,self.theta)
-            # for i in range(self.nLoc):
-            #     for j in range(self.nClus):
-            #         if self.theta[i,j]>0.999:
-            #             self.theta[i,j]=0.999
-            #         elif self.theta[i,j]<0.001:
-            #             self.theta[i,j]=0.001
     def write(self,stream=sys.stdout):
         print("snp", *["t"+str(i) for i in range(self.nClus)], "rho", *["a"+str(i) for i in range(self.nClus)], file=stream)
         for i in range(self.nLoc):
@@ -300,16 +322,6 @@ class fastphase():
                 result_id = hap_p_all.remote(hap, pz_id, theta)
                 result_map[result_id] = name
                 result_ids.append(result_id)
-            # while len(result_ids):
-            #     item, result_ids = ray.wait(result_ids)
-            #     pall = ray.get(item)[0]
-            #     name = result_map[item[0]]
-            #     Imputations[name][0] += x*pall
-            #     Imputations[name][1].append(ray.get(pz_map[name]))
-            # ## Genotypes
-            # result_map = {} ## maps result_id (P(G|theta)) -> name
-            # pz_map = {} ## maps name -> P(Z|G)
-            # result_ids = []
             for name,gen in self.genotypes.items():
                 pz_id = gen_calc.remote(alpha, theta, rho, gen, 1)
                 pz_map[name]=pz_id
@@ -336,6 +348,7 @@ class fastphase():
                 Imputations[name][0] += x*pgeno
                 Imputations[name][1].append(pZ)
         return Imputations
+
     def viterbi( self, parList):
         Imputations = {}
         for hap in self.haplotypes:
@@ -365,3 +378,144 @@ class fastphase():
                 Imputations[name].append( pth)
         return Imputations
        
+    def optimfit(self, nClus = 20, nstep = 10, params=None, verbose = False, rhomin=1e-6, alpha_up = False, fast=False, nEM = 5, niter=10):
+        """Fit a fastphase model by optimizing likelihood via minimizing cluster switches.
+
+        This method attempts to find an optimum (in terms of
+        likelihood) set of parameters for a fastphase model, with
+        equal weight clusters (by default). This is done by : 
+
+        0. Fit nEM fastphase models on the data and keep the best one
+        1. Then for niter successive iterations:
+            1.2. Compute viterbi path for each data point (genotypes and
+                 haplotypes). Warning : this step is in K^4 for genotype data
+                 so can be extremely slow. Ok for haplotype (phased) data.
+            1.3. Based on viterbi paths determine at each SNP interval if
+                 cluster labels should be switched using the Hungarian method
+                 (linear_sum_assignment).
+            1.4. Permute cluster labels to minimize switch and iterate again
+        2. At the last iteration the model is run for max(30,nstep) iterations 
+        to estimate the final set of parameters.
+        
+        Parameters
+        ----------
+
+        nClus : int
+            number of haplotype clusters
+        nstep : int
+            number of iteration for the EM algorithm
+        params : object
+            mod_params instance of starting parameters
+        verbose : bool
+            turn on verbosity
+        rhomin : float
+            minimum value for rho
+        alpha_up : bool
+            should the alphas be optimized or kept equal (default)
+        fast : boot
+            experimental, speed up computations at the expense of efficiency
+        nEM : int
+            number of starting EM fits
+        niter : int
+            number of iterations in the finale steps.
+            
+        Returns
+        -------
+        fastphase.mod_params 
+        
+        A set of parameters of a fastphase model.
+
+        Note 
+        ----
+        Computations are parallelized across available CPUs (see fastphase.nproc)
+
+        """
+        liktraj = []
+
+        try:
+            assert(len(self.genotypes)+len(self.haplotypes) > 0)
+        except:
+            raise AssertionError("Optimfit only available with genotyping data")
+
+        print("=== OPTIMFIT RUN ===",file=self.flog)
+        ## Fit nEM EM to find an initial start
+        if verbose:
+            print("*** Init EM", 1,file=self.flog)
+        nbest = 0
+        curpar = self.fit( nClus = nClus, nstep = nstep, verbose = True, alpha_up = alpha_up, fast=fast)
+        liktraj.append((0, 0, curpar.loglike))
+        for n in range(1, nEM):
+            if verbose:
+                print("*** Init EM", n+1,file=self.flog)
+            
+            par = self.fit( nClus = nClus, nstep = nstep,verbose = True, alpha_up = alpha_up, fast=fast)
+            liktraj.append((n, 0, par.loglike))
+            if par.loglike > curpar.loglike:
+                nbest = n
+                curpar = par
+        init_par = curpar
+        ## Improve it
+        print('Initial Viterbi',file=self.flog)
+        self.flog.flush()
+        imp = self.viterbi([curpar])
+        
+        for it in range(niter):
+            if verbose:
+                print("*** Iter", it+1,file=self.flog)
+                self.flog.flush()
+            ## calculate costs
+            if verbose:
+                print("Calculating Costs",file=self.flog)
+                self.flog.flush()
+
+            cost_mat_tot = np.zeros( (self.nLoci-1, nClus, nClus), dtype=np.float)
+            result_ids = []
+            for haplo in self.haplotypes.keys():
+                result_id = calc_cost_matrix_haplo.remote( np.array(imp[haplo][0]), nClus)
+                result_ids.append(result_id)
+            for geno in self.genotypes.keys():
+                result_id = calc_cost_matrix_geno.remote( np.array(imp[geno][0]), nClus)
+                result_ids.append(result_id)
+
+            while len(result_ids):
+                item, result_ids = ray.wait(result_ids)
+                res = ray.get(item)[0]
+                cost_mat_tot += res
+
+            ## combine
+            if verbose:
+                print("Computing optimum permutations",file=self.flog)
+                self.flog.flush()
+            # res = np.array( self.pool.map( linear_sum_assignment, cost_mat_tot,  1000))
+            res = np.array( [ linear_sum_assignment(x) for x in cost_mat_tot ])
+            permut = res[:,1,:]
+            newpar = self.switch_pars( curpar, permut)
+            if verbose:
+                print("EM with switched parameters",file=self.flog)
+                self.flog.flush()
+            if (it == niter-1): ## last iteration, longer and no imputation
+                par_s = self.fit( nClus = nClus, nstep=max(30,nstep), verbose=True, params=newpar, alpha_up=False, fast=fast)
+            else:
+                par_s = self.fit( nClus = nClus, nstep=nstep, verbose=True, params=newpar, alpha_up=False, fast=fast)
+                imp = self.viterbi([par_s])
+            curpar = par_s
+            liktraj.append((nbest, it+1, curpar.loglike))
+        
+        ## add alpha update
+        # par_s = self.fit(nClus = nClus, nstep = max(30,nstep), verbose = True, params = par_s, alpha_up = True, theta_up = False, fast = fast)
+        # liktraj.append((nbest, it+2, par_s.loglike))
+        print('EM','iter','loglik',file=self.flog)
+        for dat in liktraj:
+            print(*dat,file=self.flog)
+        return par_s
+
+    @staticmethod
+    def switch_pars(par, permut):
+        newpar = modParams(par.nLoc, par.nClus, alpha_up = par.alpha_up)
+        for i in range(par.nClus):
+            newpar.theta[0,i]=par.theta[0,i]
+            curclus = i
+            for j in range(1, par.nLoc):
+                curclus =  permut[ j-1, curclus]
+                newpar.theta[ j,i] = par.theta[ j, curclus]
+        return newpar

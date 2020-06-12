@@ -89,7 +89,12 @@ def simple_test(nEM,implementation,**kwargs):
             for  pth in results:
                 print(ID,'-'.join( map(str,pth)))
    
-def optimfit_test():
+def optimfit_test(implementation, **kwargs):
+    if implementation=='MP':
+        fph=fph_mp
+    else:
+        fph=fph_ray
+
     with fph.fastphase(9) as model:
         ## c'est parti
         for ID,g in gens.items():
@@ -100,7 +105,7 @@ def optimfit_test():
             model.addHaplotype(ID,h)
         par_list=[]
         t0=time.time()
-        par=model.optimfit(nClus=K,nstep=10,verbose=True)
+        par=model.optimfit(**kwargs)
         par_list.append(par)
         model.flush()
         for ID,g in gens.items():
@@ -117,8 +122,8 @@ def optimfit_test():
         print('Optimfit test:',t1-t0,'seconds')
     
 if __name__=='__main__':
-    start_pars = fph_mp.modParams(N,K)
-    simple_test(1, "MP", nClus=K, params=start_pars)
-    simple_test(1, "RAY", nClus=K, params=start_pars)
-##    optimfit_test()
+    simple_test(1, "MP", nClus=K)
+    simple_test(1, "RAY", nClus=K)
+    optimfit_test("MP",nClus=K,nstep=10)
+    optimfit_test("RAY",nClus=K,nstep=10)
 
