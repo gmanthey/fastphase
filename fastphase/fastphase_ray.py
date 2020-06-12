@@ -152,7 +152,7 @@ class fastphase():
     def __enter__(self):
         if not ray.is_initialized():
             print("Initializing ray")
-            ray.init(num_cpus=self.nproc, lru_evict=True)
+            ray.init(num_cpus=self.nproc)
             print(ray.nodes())
             self.init_ray=True
         else:
