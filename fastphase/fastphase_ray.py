@@ -475,13 +475,17 @@ class fastphase():
             ## MEMORY problems here
             cost_mat_tot = np.zeros( (self.nLoci-1, nClus, nClus), dtype=np.float)
             for haplo in self.haplotypes:
-                res = calc_cost_matrix_haplo( np.array(imp[haplo][0]), nClus)
+                res_id = calc_cost_matrix_haplo.remote( np.array(imp[haplo][0]), nClus)
+                res = ray.get(res_id)
                 cost_mat_tot += res
                 del res
+                del res_id
             for geno in self.genotypes:
-                res = calc_cost_matrix_geno( np.array(imp[geno][0]), nClus)
+                res_id = calc_cost_matrix_geno.remote( np.array(imp[geno][0]), nClus)
+                res = ray.get(res_id)
                 cost_mat_tot += res
                 del res
+                del res_id
                 
             # result_ids = []
             # for haplo in self.haplotypes.keys():
@@ -498,7 +502,7 @@ class fastphase():
             #     del res
             
             ## mem management
-            for k in imp:
+            for k in list(imp.keys()):
                 del imp[k]
             del imp
             
