@@ -472,27 +472,44 @@ class fastphase():
                 print("Calculating Costs",file=self.flog)
                 self.flog.flush()
 
+            ## MEMORY problems here
             cost_mat_tot = np.zeros( (self.nLoci-1, nClus, nClus), dtype=np.float)
-            result_ids = []
-            for haplo in self.haplotypes.keys():
-                result_id = calc_cost_matrix_haplo.remote( np.array(imp[haplo][0]), nClus)
-                result_ids.append(result_id)
-            for geno in self.genotypes.keys():
-                result_id = calc_cost_matrix_geno.remote( np.array(imp[geno][0]), nClus)
-                result_ids.append(result_id)
-
-            while len(result_ids):
-                item, result_ids = ray.wait(result_ids)
-                res = ray.get(item)[0]
+            for haplo in self.haplotypes:
+                res = calc_cost_matrix_haplo( np.array(imp[haplo][0]), nClus)
                 cost_mat_tot += res
                 del res
+            for geno in self.genotypes:
+                res = calc_cost_matrix_geno( np.array(imp[geno][0]), nClus)
+                cost_mat_tot += res
+                del res
+                
+            # result_ids = []
+            # for haplo in self.haplotypes.keys():
+            #     result_id = calc_cost_matrix_haplo.remote( np.array(imp[haplo][0]), nClus)
+            #     result_ids.append(result_id)
+            # for geno in self.genotypes.keys():
+            #     result_id = calc_cost_matrix_geno.remote( np.array(imp[geno][0]), nClus)
+            #     result_ids.append(result_id)
 
+            # while len(result_ids):
+            #     item, result_ids = ray.wait(result_ids)
+            #     res = ray.get(item)[0]
+            #     cost_mat_tot += res
+            #     del res
+            
+            ## mem management
+            for k in imp:
+                del imp[k]
+            del imp
+            
             ## combine
             if verbose:
                 print("Computing optimum permutations",file=self.flog)
                 self.flog.flush()
             # res = np.array( self.pool.map( linear_sum_assignment, cost_mat_tot,  1000))
             res = np.array( [ linear_sum_assignment(x) for x in cost_mat_tot ])
+            ## mem management
+            del cost_mat_tot
             permut = res[:,1,:]
             newpar = self.switch_pars( curpar, permut)
             if verbose:
