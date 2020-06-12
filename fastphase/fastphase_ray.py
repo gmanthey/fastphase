@@ -450,13 +450,13 @@ class fastphase():
         if verbose:
             print("*** Init EM", 1,file=self.flog)
         nbest = 0
-        curpar = self.fit( nClus = nClus, nstep = nstep, verbose = True, alpha_up = alpha_up, fast=fast)
+        curpar = self.fit( nClus = nClus, nstep = nstep, verbose = verbose, alpha_up = alpha_up, fast=fast)
         liktraj.append((0, 0, curpar.loglike))
         for n in range(1, nEM):
             if verbose:
                 print("*** Init EM", n+1,file=self.flog)
             
-            par = self.fit( nClus = nClus, nstep = nstep,verbose = True, alpha_up = alpha_up, fast=fast)
+            par = self.fit( nClus = nClus, nstep = nstep,verbose = verbose, alpha_up = alpha_up, fast=fast)
             liktraj.append((n, 0, par.loglike))
             if par.loglike > curpar.loglike:
                 nbest = n
@@ -476,49 +476,56 @@ class fastphase():
                 print("Calculating Costs",file=self.flog)
                 self.flog.flush()
 
-            ## MEMORY problems here parallelize along SNPs
+            ## MEMORY problems here parallelize along SNPs if Matrix larger than 100 MB
             cost_mat_tot = np.zeros( (self.nLoci-1, nClus, nClus), dtype=np.float)
-            n_snp_par = 10000
-            for haplo in self.haplotypes:
-                id_map = {}
-                results_ids = []
-                for start in np.arange(self.nLoci,step=n_snp_par):
-                    res_id = calc_cost_matrix_haplo.remote( np.array(imp[haplo][0][start:(start+n_snp_par)]), nClus)
-                    results_ids.append(res_id)
-                    id_map[res_id]=start
-                while len(results_ids):
-                    item, results_ids = ray.wait(results_ids)
-                    res = ray.get(item)[0]
-                    cost_mat_tot[id_map[item[0]]:(id_map[item[0]]+n_snp_par)] += res
-                    del res
-                    del item
-            n_snp_par = 1000
-            for geno in self.genotypes:
-                id_map = {}
-                results_ids = []
-                for start in np.arange(self.nLoci,step=n_snp_par):
-                    res_id = calc_cost_matrix_haplo.remote( np.array(imp[geno][0][start:(start+n_snp_par)]), nClus)
-                    results_ids.append(res_id)
-                    id_map[res_id]=start
-                while len(results_ids):
-                    item, results_ids = ray.wait(results_ids)
-                    res = ray.get(item)[0]
-                    cost_mat_tot[id_map[item[0]]:(id_map[item[0]]+n_snp_par)] += res
-                    del res
-                    del item
-            # result_ids = []
-            # for haplo in self.haplotypes.keys():
-            #     result_id = calc_cost_matrix_haplo.remote( np.array(imp[haplo][0]), nClus)
-            #     result_ids.append(result_id)
-            # for geno in self.genotypes.keys():
-            #     result_id = calc_cost_matrix_geno.remote( np.array(imp[geno][0]), nClus)
-            #     result_ids.append(result_id)
+            if cost_mat_tot.nbytes > ( 100*1024*1024 ):
+                n_snp_par = np.rint(self.nloci/self.nproc)
+                for haplo in self.haplotypes:
+                    id_map = {}
+                    results_ids = []
+                    for start in np.arange(self.nLoci,step=n_snp_par):
+                        end = min((start+n_snp_par+1), self.nLoci)
+                        res_id = calc_cost_matrix_haplo.remote( np.array(imp[haplo][0][start:end]), nClus)
+                        results_ids.append(res_id)
+                        id_map[res_id]=start
+                    while len(results_ids):
+                        item, results_ids = ray.wait(results_ids)
+                        res = ray.get(item)[0]
+                        start = id_map[item[0]]
+                        end =  min((start+n_snp_par), self.nLoci)
+                        cost_mat_tot[start:end] += res
+                        del res
+                        del item
+                for geno in self.genotypes:
+                    id_map = {}
+                    results_ids = []
+                    for start in np.arange(self.nLoci,step=n_snp_par):
+                        end = min((start+n_snp_par+1), self.nLoci)
+                        res_id = calc_cost_matrix_haplo.remote( np.array(imp[geno][0][start:end]), nClus)
+                        results_ids.append(res_id)
+                        id_map[res_id]=start
+                    while len(results_ids):
+                        item, results_ids = ray.wait(results_ids)
+                        res = ray.get(item)[0]
+                        start = id_map[item[0]]
+                        end =  min((start+n_snp_par), self.nLoci)
+                        cost_mat_tot[start:end] += res
+                        del res
+                        del item
+            else:
+                result_ids = []
+                for haplo in self.haplotypes.keys():
+                    result_id = calc_cost_matrix_haplo.remote( np.array(imp[haplo][0]), nClus)
+                    result_ids.append(result_id)
+                for geno in self.genotypes.keys():
+                    result_id = calc_cost_matrix_geno.remote( np.array(imp[geno][0]), nClus)
+                    result_ids.append(result_id)
 
-            # while len(result_ids):
-            #     item, result_ids = ray.wait(result_ids)
-            #     res = ray.get(item)[0]
-            #     cost_mat_tot += res
-            #     del res
+                while len(result_ids):
+                    item, result_ids = ray.wait(result_ids)
+                    res = ray.get(item)[0]
+                    cost_mat_tot += res
+                    del res
             
             ## mem management
             for k in list(imp.keys()):
@@ -539,9 +546,9 @@ class fastphase():
                 print("EM with switched parameters",file=self.flog)
                 self.flog.flush()
             if (it == niter-1): ## last iteration, longer and no imputation
-                par_s = self.fit( nClus = nClus, nstep=max(30,nstep), verbose=True, params=newpar, alpha_up=False, fast=fast)
+                par_s = self.fit( nClus = nClus, nstep=max(30,nstep), verbose=verbose, params=newpar, alpha_up=False, fast=fast)
             else:
-                par_s = self.fit( nClus = nClus, nstep=nstep, verbose=True, params=newpar, alpha_up=False, fast=fast)
+                par_s = self.fit( nClus = nClus, nstep=nstep, verbose=verbose, params=newpar, alpha_up=False, fast=fast)
                 imp = self.viterbi([par_s])
             curpar = par_s
             liktraj.append((nbest, it+1, curpar.loglike))
