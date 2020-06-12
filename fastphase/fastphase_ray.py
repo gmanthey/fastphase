@@ -33,6 +33,10 @@ def gen_p_geno(gen, pz, theta):
 @ray.remote
 def calc_cost_matrix_haplo( h, nK ):
     nL= h.shape[0]
+    try:
+        assert nL>0
+    except AssertionError:
+        print (*h)
     res = np.zeros( ( nL-1, nK, nK), dtype=np.float)
     for l in range(nL -1):
         res[l, h[l], h[l+1]] -= 1
@@ -472,21 +476,36 @@ class fastphase():
                 print("Calculating Costs",file=self.flog)
                 self.flog.flush()
 
-            ## MEMORY problems here
+            ## MEMORY problems here parallelize along SNPs
             cost_mat_tot = np.zeros( (self.nLoci-1, nClus, nClus), dtype=np.float)
+            n_snp_par = 10000
             for haplo in self.haplotypes:
-                res_id = calc_cost_matrix_haplo.remote( np.array(imp[haplo][0]), nClus)
-                res = ray.get(res_id)
-                cost_mat_tot += res
-                del res
-                del res_id
+                id_map = {}
+                results_ids = []
+                for start in np.arange(self.nLoci,step=n_snp_par):
+                    res_id = calc_cost_matrix_haplo.remote( np.array(imp[haplo][0][start:(start+n_snp_par)]), nClus)
+                    results_ids.append(res_id)
+                    id_map[res_id]=start
+                while len(results_ids):
+                    item, results_ids = ray.wait(results_ids)
+                    res = ray.get(item)[0]
+                    cost_mat_tot[id_map[item[0]]:(id_map[item[0]]+n_snp_par)] += res
+                    del res
+                    del item
+            n_snp_par = 1000
             for geno in self.genotypes:
-                res_id = calc_cost_matrix_geno.remote( np.array(imp[geno][0]), nClus)
-                res = ray.get(res_id)
-                cost_mat_tot += res
-                del res
-                del res_id
-                
+                id_map = {}
+                results_ids = []
+                for start in np.arange(self.nLoci,step=n_snp_par):
+                    res_id = calc_cost_matrix_haplo.remote( np.array(imp[geno][0][start:(start+n_snp_par)]), nClus)
+                    results_ids.append(res_id)
+                    id_map[res_id]=start
+                while len(results_ids):
+                    item, results_ids = ray.wait(results_ids)
+                    res = ray.get(item)[0]
+                    cost_mat_tot[id_map[item[0]]:(id_map[item[0]]+n_snp_par)] += res
+                    del res
+                    del item
             # result_ids = []
             # for haplo in self.haplotypes.keys():
             #     result_id = calc_cost_matrix_haplo.remote( np.array(imp[haplo][0]), nClus)
