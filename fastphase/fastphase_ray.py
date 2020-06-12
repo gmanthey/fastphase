@@ -269,6 +269,7 @@ class fastphase():
                 hLogLike,top,bot,jmk = result[0]
                 par.addIndivFit(top,bot,jmk,1)
                 log_like+=hLogLike
+                del result
             ## Genotypes
             result_ids = [ gen_calc.remote(alpha, theta, rho, gen,0) for gen in self.genotypes.values()]
             while len(result_ids):
@@ -277,6 +278,7 @@ class fastphase():
                 hLogLike,top,bot,jmk = result[0]
                 par.addIndivFit(top,bot,jmk,2)
                 log_like+=hLogLike
+                del result
             ## Genotype Likelihoods
             result_ids = [ lik_calc.remote(alpha, theta, rho, lik,0) for lik in self.genolik.values()]
             while len(result_ids):
@@ -285,6 +287,7 @@ class fastphase():
                 hLogLike,top,bot,jmk = result[0]
                 par.addIndivFit(top,bot,jmk,2)
                 log_like+=hLogLike
+                del result
                 
             ## remove parameters from ray object store
             del alpha
@@ -295,7 +298,6 @@ class fastphase():
                 self.flog.flush()
             par.update()
             par.loglike=log_like
-        
         return par
 
     def impute(self,parList):
@@ -334,6 +336,7 @@ class fastphase():
                 name = result_map[item[0]]
                 Imputations[name][0] += x*pgeno
                 Imputations[name][1].append(ray.get(pz_map[name]))
+                del pgeno
             ## Genotype Likelihoods
             result_map = {} ## maps result_id (P(G|theta)) -> name
             result_ids = []
@@ -347,6 +350,7 @@ class fastphase():
                 name = result_map[item[0]]
                 Imputations[name][0] += x*pgeno
                 Imputations[name][1].append(pZ)
+                del pgeno
         return Imputations
 
     def viterbi( self, parList):
@@ -481,6 +485,7 @@ class fastphase():
                 item, result_ids = ray.wait(result_ids)
                 res = ray.get(item)[0]
                 cost_mat_tot += res
+                del res
 
             ## combine
             if verbose:
