@@ -27,7 +27,7 @@ def gen_p_geno(gen, pz, theta):
     K = pz.shape[1]
     O = np.ones(K)
     theta_sum_mat = np.array([np.kron(O,t).reshape(K,K)+np.kron(t,O).reshape(K,K) for t in theta])
-    rez = np.where(gen <0, np.einsum( 'lkk->l', pz*theta_sum_mat), np.einsum('lkk,l->l', pz, gen))
+    rez = np.where(gen <0, np.sum(pz*theta_sum_mat,axis=(1,2)), gen)
     return rez
 
 @ray.remote
@@ -478,54 +478,40 @@ class fastphase():
 
             ## MEMORY problems here parallelize along SNPs if Matrix larger than 100 MB
             cost_mat_tot = np.zeros( (self.nLoci-1, nClus, nClus), dtype=np.float)
-            if cost_mat_tot.nbytes > ( 100*1024*1024 ):
-                n_snp_par = np.rint(self.nloci/self.nproc)
-                for haplo in self.haplotypes:
-                    id_map = {}
-                    results_ids = []
-                    for start in np.arange(self.nLoci,step=n_snp_par):
-                        end = min((start+n_snp_par+1), self.nLoci)
-                        res_id = calc_cost_matrix_haplo.remote( np.array(imp[haplo][0][start:end]), nClus)
-                        results_ids.append(res_id)
-                        id_map[res_id]=start
-                    while len(results_ids):
-                        item, results_ids = ray.wait(results_ids)
-                        res = ray.get(item)[0]
-                        start = id_map[item[0]]
-                        end =  min((start+n_snp_par), self.nLoci)
-                        cost_mat_tot[start:end] += res
+            result_ids = []
+            i_res = 0
+            for haplo in self.haplotypes.keys():
+                i_res += 1
+                result_id = calc_cost_matrix_haplo.remote( np.array(imp[haplo][0]), nClus)
+                result_ids.append(result_id)
+                if (i_res % self.nproc) == 0:
+                    for res in ray.get(result_ids):
+                        cost_mat_tot += res
                         del res
-                        del item
-                for geno in self.genotypes:
-                    id_map = {}
-                    results_ids = []
-                    for start in np.arange(self.nLoci,step=n_snp_par):
-                        end = min((start+n_snp_par+1), self.nLoci)
-                        res_id = calc_cost_matrix_haplo.remote( np.array(imp[geno][0][start:end]), nClus)
-                        results_ids.append(res_id)
-                        id_map[res_id]=start
-                    while len(results_ids):
-                        item, results_ids = ray.wait(results_ids)
-                        res = ray.get(item)[0]
-                        start = id_map[item[0]]
-                        end =  min((start+n_snp_par), self.nLoci)
-                        cost_mat_tot[start:end] += res
+                    result_ids=[]
+                    i_res=0
+            ## terminate
+            for res in ray.get(result_ids):
+                cost_mat_tot += res
+                del res
+ 
+            result_ids = []
+            i_res = 0
+            for geno in self.genotypes.keys():
+                i_res += 1
+                result_id = calc_cost_matrix_geno.remote( np.array(imp[geno][0]), nClus)
+                result_ids.append(result_id)
+                if (i_res % self.nproc) == 0:
+                    for res in ray.get(result_ids):
+                        cost_mat_tot += res
                         del res
-                        del item
-            else:
-                result_ids = []
-                for haplo in self.haplotypes.keys():
-                    result_id = calc_cost_matrix_haplo.remote( np.array(imp[haplo][0]), nClus)
-                    result_ids.append(result_id)
-                for geno in self.genotypes.keys():
-                    result_id = calc_cost_matrix_geno.remote( np.array(imp[geno][0]), nClus)
-                    result_ids.append(result_id)
-
-                while len(result_ids):
-                    item, result_ids = ray.wait(result_ids)
-                    res = ray.get(item)[0]
-                    cost_mat_tot += res
-                    del res
+                    result_ids=[]
+                    i_res=0
+            ## terminate
+            for res in ray.get(result_ids):
+                cost_mat_tot += res
+                del res
+ 
             
             ## mem management
             for k in list(imp.keys()):
