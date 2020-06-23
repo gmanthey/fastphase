@@ -46,7 +46,7 @@ if cython:
 
 setup(
     name = 'fastphase',
-    version = '2.0-dev',
+    version = '2.0.dev1',
     description = 'Python implementation of the fastPHASE model',
     long_description = read('README.md'),
     license = "LGPL v3",
@@ -54,6 +54,7 @@ setup(
     author_email = "bertrand.servin@inrae.fr",
     url = "https://forgemia.inra.fr/bertrand.servin/fastphase",
     packages = ['fastphase'],
+    package_data={'fastphase':["*.pyx"]},
     cmdclass={'build_ext' : my_build_ext},
     setup_requires = [ 'numpy' ],
     install_requires = [

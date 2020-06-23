@@ -4,6 +4,7 @@ import numpy as np
 import ray
 from scipy.optimize import linear_sum_assignment
 from fastphase import calc_func
+from fastphase.params import modParams
 
 ### RAY FUNCTIONS
 
@@ -79,59 +80,59 @@ def calc_cost_matrix_geno_item( vit, nK):
 
 ### CLASSES
 
-class modParams():
-    '''
-    A class for fastphase model parameters.
-    Dimensions:
-    -- number of loci: N
-    -- number of clusters: K
-    Parameters:
-    -- theta (N x K): allele frequencies in clusters at each locus
-    -- alpha (N x K): cluster weights at each locus
-    -- rho (N x 1): jump probabilities in each interval
-    '''
-    def __init__(self,nLoc,nClus,rhomin=1e-6, alpha_up = True, theta_up = True):
-        self.nLoc=nLoc
-        self.nClus=nClus
-        self.theta=0.98*np.random.random((nLoc,nClus))+0.01 # avoid bounds 0 and 1
-        self.rho=np.ones((nLoc,1))/1000
-        self.alpha=1.0/nClus*np.ones((nLoc,nClus))
-        self.rhomin=rhomin
-        self.alpha_up = alpha_up
-        self.theta_up = theta_up
-        self.loglike = 0
-    def initUpdate(self):
-        self.top=np.zeros((self.nLoc,self.nClus))
-        self.bot=np.zeros((self.nLoc,self.nClus))
-        self.jmk=np.zeros((self.nLoc,self.nClus))
-        self.jm=np.zeros((self.nLoc,1))
-        self.nhap=0.0
-    def addIndivFit(self,t,b,j,nhap):
-        self.top += t
-        self.bot += b
-        self.jmk += j
-        self.jm  += np.reshape(np.sum(j,axis=1),(self.nLoc,1))
-        self.nhap+=nhap
-    def update(self):
-        ''' Update parameters using top,bot,jmk jm probabilities'''
-        ## rho
-        self.rho=self.jm/self.nhap
-        self.rho = np.where(self.rho<0, self.rhomin, self.rho)
-        ## alpha
-        if self.alpha_up:
-            self.alpha = self.jmk/self.jm
-            self.alpha = np.where( self.alpha>0.999,0.999,self.alpha)
-            self.alpha = np.where( self.alpha<0.001,0.001,self.alpha)
-            self.alpha /= np.sum(self.alpha, axis=1, keepdims=True)
-        ## theta
-        if self.theta_up:
-            self.theta = self.top/self.bot
-            self.theta = np.where(self.theta>0.999,0.999,self.theta)
-            self.theta = np.where(self.theta<0.001,0.001,self.theta)
-    def write(self,stream=sys.stdout):
-        print("snp", *["t"+str(i) for i in range(self.nClus)], "rho", *["a"+str(i) for i in range(self.nClus)], file=stream)
-        for i in range(self.nLoc):
-            print(i, *[np.round( self.theta[i,k], 3) for k in range(self.nClus)], np.round( self.rho[i,0], 7), *[np.round( self.alpha[i,k], 3) for k in range(self.nClus)], file=stream)
+# class modParams():
+#     '''
+#     A class for fastphase model parameters.
+#     Dimensions:
+#     -- number of loci: N
+#     -- number of clusters: K
+#     Parameters:
+#     -- theta (N x K): allele frequencies in clusters at each locus
+#     -- alpha (N x K): cluster weights at each locus
+#     -- rho (N x 1): jump probabilities in each interval
+#     '''
+#     def __init__(self,nLoc,nClus,rhomin=1e-6, alpha_up = True, theta_up = True):
+#         self.nLoc=nLoc
+#         self.nClus=nClus
+#         self.theta=0.98*np.random.random((nLoc,nClus))+0.01 # avoid bounds 0 and 1
+#         self.rho=np.ones((nLoc,1))/1000
+#         self.alpha=1.0/nClus*np.ones((nLoc,nClus))
+#         self.rhomin=rhomin
+#         self.alpha_up = alpha_up
+#         self.theta_up = theta_up
+#         self.loglike = 0
+#     def initUpdate(self):
+#         self.top=np.zeros((self.nLoc,self.nClus))
+#         self.bot=np.zeros((self.nLoc,self.nClus))
+#         self.jmk=np.zeros((self.nLoc,self.nClus))
+#         self.jm=np.zeros((self.nLoc,1))
+#         self.nhap=0.0
+#     def addIndivFit(self,t,b,j,nhap):
+#         self.top += t
+#         self.bot += b
+#         self.jmk += j
+#         self.jm  += np.reshape(np.sum(j,axis=1),(self.nLoc,1))
+#         self.nhap+=nhap
+#     def update(self):
+#         ''' Update parameters using top,bot,jmk jm probabilities'''
+#         ## rho
+#         self.rho=self.jm/self.nhap
+#         self.rho = np.where(self.rho<0, self.rhomin, self.rho)
+#         ## alpha
+#         if self.alpha_up:
+#             self.alpha = self.jmk/self.jm
+#             self.alpha = np.where( self.alpha>0.999,0.999,self.alpha)
+#             self.alpha = np.where( self.alpha<0.001,0.001,self.alpha)
+#             self.alpha /= np.sum(self.alpha, axis=1, keepdims=True)
+#         ## theta
+#         if self.theta_up:
+#             self.theta = self.top/self.bot
+#             self.theta = np.where(self.theta>0.999,0.999,self.theta)
+#             self.theta = np.where(self.theta<0.001,0.001,self.theta)
+#     def write(self,stream=sys.stdout):
+#         print("snp", *["t"+str(i) for i in range(self.nClus)], "rho", *["a"+str(i) for i in range(self.nClus)], file=stream)
+#         for i in range(self.nLoc):
+#             print(i, *[np.round( self.theta[i,k], 3) for k in range(self.nClus)], np.round( self.rho[i,0], 7), *[np.round( self.alpha[i,k], 3) for k in range(self.nClus)], file=stream)
 
 
 class fastphase():
