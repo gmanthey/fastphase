@@ -421,16 +421,9 @@ cpdef genCalc(aa,tt,rr,gg,u2p):
 
 
 ########################################### Genotype likelihood Calculations #####################################################
-cdef double likprG( double t1,double t2, np.ndarray[ np.float64_t, ndim=1] gl):
-    cdef double rez
-    cdef int i
-    
-    rez = 0.0
-    ## g = 0
-    rez = np.exp(gl[0])*(1-t1)*(1-t2)
-    rez += np.exp(gl[1])*( t1*(1-t2) + (1-t1)*t2)
-    rez += np.exp(gl[2])*t1*t2
-    return rez
+
+cdef inline double likprG( double t1,double t2, np.ndarray[ np.float64_t, ndim=1] gl):
+    return gl[0]*(1-t1)*(1-t2) + gl[1]*( t1*(1-t2) + (1-t1)*t2) +  gl[2]*t1*t2
 
 cpdef likCalc(aa,tt,rr,ll,u2p):
     cdef np.ndarray[np.float64_t, ndim=2] alpha=aa
@@ -592,9 +585,9 @@ cpdef likCalc(aa,tt,rr,ll,u2p):
             p_g_givX[0,0] += temp*genprG(theta[0,k1],theta[0,k2],0) 
             p_g_givX[0,1] += temp*genprG(theta[0,k1],theta[0,k2],1) 
             p_g_givX[0,2] += temp*genprG(theta[0,k1],theta[0,k2],2)
-    p_g_givX[0,0] *= np.exp(lik[0,0])
-    p_g_givX[0,1] *= np.exp(lik[0,1])
-    p_g_givX[0,2] *= np.exp(lik[0,2])
+    p_g_givX[0,0] *= lik[0,0]
+    p_g_givX[0,1] *= lik[0,1]
+    p_g_givX[0,2] *= lik[0,2]
     normC = p_g_givX[0,0]+p_g_givX[0,1]+p_g_givX[0,2]
     p_g_givX[0]/=normC
             
@@ -609,9 +602,9 @@ cpdef likCalc(aa,tt,rr,ll,u2p):
                 p_g_givX[m+1,0] += temp*genprG(theta[m+1,k1],theta[m+1,k2],0)
                 p_g_givX[m+1,1] += temp*genprG(theta[m+1,k1],theta[m+1,k2],1)
                 p_g_givX[m+1,2] += temp*genprG(theta[m+1,k1],theta[m+1,k2],2)
-        p_g_givX[m+1,0] *= np.exp(lik[m+1,0])
-        p_g_givX[m+1,1] *= np.exp(lik[m+1,1])
-        p_g_givX[m+1,2] *= np.exp(lik[m+1,2])
+        p_g_givX[m+1,0] *= lik[m+1,0]
+        p_g_givX[m+1,1] *= lik[m+1,1]
+        p_g_givX[m+1,2] *= lik[m+1,2]
         normC = p_g_givX[m+1,0]+p_g_givX[m+1,1]+p_g_givX[m+1,2]
         p_g_givX[m+1]/=normC
                 
