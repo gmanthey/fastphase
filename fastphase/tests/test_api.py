@@ -36,16 +36,20 @@ def simple_test(nEM=1):
     
     with fph.fastphase(9) as model:
         ## c'est parti
-        # for ID,g in gens.items():
-        #     model.addGenotype(ID,g)
+        for ID,h in haps.items():
+            model.addHaplotype(ID,h)
+        for ID,g in gens.items():
+            model.addGenotype(ID,g)
         for ID,pg in genprobs.items():
             model.addGenotypeLikelihood(ID,pg)
-        t0=time.time()
         par_list=[]
         for n in range(nEM):
+            t0=time.time()
             print("EM",n)
             par=model.fit(nClus=5,nstep=20)
             par_list.append(par)
+            t1=time.time()
+            print('Simple test:',n,t1-t0,'seconds')
         model.flush()
         for ID,h in haps.items():
             model.addHaplotype(ID,h)
@@ -53,8 +57,6 @@ def simple_test(nEM=1):
         for ID,h in haps.items():
             print(ID)
             print(' '.join([str(x)+' ( '+str(y)+' ) ' for y,x in zip(h,imp[ID][0])]))
-        t1=time.time()
-        print('Simple test:',t1-t0,'seconds')
 
 def optimfit_test():
     with fph.fastphase(9) as model:
@@ -84,6 +86,6 @@ def optimfit_test():
         print('Optimfit test:',t1-t0,'seconds')
     
 if __name__=='__main__':
-    simple_test()
-    optimfit_test()
+    simple_test(nEM=10)
+    ##optimfit_test()
 
