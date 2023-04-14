@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel", "Cython", "numpy"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fastphase"
+version = "2.0"
+authors = [
+   { name = "Bertrand Servin", email = "bertrand.servin@inrae.fr" }
+   ]
+description = "Python implementation of the fastPHASE model"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "LGPL v3"}
+dependencies = ['numpy', 'scipy', 'psutil', 'ray']
+classifiers = [
+        "Development Status :: 5 - Production/Stable",
+        "Intended Audience :: Science/Research",
+        "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
+        "Operating System :: OS Independent",
+        "Programming Language :: Cython",
+        "Topic :: Scientific/Engineering"
+        ]
+
+[project.urls]
+ "Homepage" = "https://forgemia.inra.fr/bertrand.servin/fastphase"
