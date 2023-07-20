@@ -345,7 +345,7 @@ class fastphase():
                 print("Calculating Costs",file=self.flog)
                 self.flog.flush()
 
-            cost_mat_tot = np.zeros( (self.nLoci-1, nClus, nClus), dtype=np.float)
+            cost_mat_tot = np.zeros( (self.nLoci-1, nClus, nClus), dtype=np.float64)
             hargs = ( ( np.array(imp[haplo][0],dtype=int) , nClus) for haplo in self.haplotypes.keys())
             for res in self.pool.imap_unordered(calc_cost_matrix_haplo_tot, hargs, chunksize=10):
                 cost_mat_tot += res
