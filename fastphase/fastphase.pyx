@@ -42,7 +42,7 @@ class imputeInData():
         self.name=name
         self.nLoc=nLoc
         self.data=data
-        
+
 class imputeOutData():
     def __init__(self,pgeno,name,pZ,path=None):
         self.name=name
@@ -120,13 +120,13 @@ class imputeOutData():
 #             print(i, *[np.round( self.theta[i,k], 3) for k in range(self.nClus)], np.round( self.rho[i,0], 7), *[np.round( self.alpha[i,k], 3) for k in range(self.nClus)], file=stream)
 
 _tohap = np.vectorize(lambda x: (x==1) and -1 or (x/2))
-    
+
 class fastphase():
     '''
     A class to manipulate and control a fastphase model (Scheet and Stephens, 2006)
     Initialized with a problem size = number of loci
 
-    Usage : 
+    Usage :
     with fastphase(nloc, nproc) as fph:
          ... do stuff ...
     '''
@@ -139,7 +139,7 @@ class fastphase():
         self.nproc = nproc
         self.pool = None
         self.prfx = prfx
-        
+
     def __enter__(self):
         self.pool = Pool ( self.nproc)
         if self.prfx is None:
@@ -155,12 +155,12 @@ class fastphase():
 
     def flush(self):
         '''
-        remove data 
+        remove data
         '''
         self.haplotypes={}
         self.genotypes={}
         self.genolik={}
-    
+
     def addHaplotype(self,ID,hap,missing=-1):
         '''
         Add an haplotype to the model observations.
@@ -196,13 +196,13 @@ class fastphase():
         except AssertionError:
             print("Wrong Array Size:", lik.shape,"is not",(self.nLoci,3))
             raise
-        lik = np.array(lik) 
+        lik = np.array(lik)
         self.genolik[ID] = np.exp(lik - np.max(lik, axis=1,keepdims=True))
-            
+
     @staticmethod
     def gen2hap(gen):
         return np.array( _tohap(np.array(gen, dtype=int)), dtype=int)
-    
+
     def fit(self,nClus=20,nstep=20,params=None,verbose=False,rhomin=1e-6, alpha_up = True, theta_up = True, fast=False):
         '''
         Fit the model on observations with nCLus clusters using nstep EM iterations
@@ -213,7 +213,7 @@ class fastphase():
         except AssertionError:
             print('Usage :\n\t with fastphase(nloc, nproc) as fph: \n ...')
             raise
-            
+
         if params:
             par=params
             par.alpha_up = alpha_up
@@ -231,7 +231,7 @@ class fastphase():
         old_log_like=1
 
         for iEM in range(nstep):
-   
+
             log_like=0.0
             par.initUpdate()
 
@@ -252,7 +252,7 @@ class fastphase():
                 self.flog.flush()
             par.update()
             par.loglike=log_like
-        
+
         return par
 
     def optimfit(self, nClus = 20, nstep = 10, params=None, verbose = False, rhomin=1e-6, alpha_up = False, fast=False, nEM = 5, niter=10):
@@ -260,7 +260,7 @@ class fastphase():
 
         This method attempts to find an optimum (in terms of
         likelihood) set of parameters for a fastphase model, with
-        equal weight clusters (by default). This is done by : 
+        equal weight clusters (by default). This is done by :
 
         0. Fit nEM fastphase models on the data and keep the best one
         1. Then for niter successive iterations:
@@ -271,9 +271,9 @@ class fastphase():
                  cluster labels should be switched using the Hungarian method
                  (linear_sum_assignment).
             1.4. Permute cluster labels to minimize switch and iterate again
-        2. At the last iteration the model is run for max(30,nstep) iterations 
+        2. At the last iteration the model is run for max(30,nstep) iterations
         to estimate the final set of parameters.
-        
+
         Parameters
         ----------
 
@@ -295,14 +295,14 @@ class fastphase():
             number of starting EM fits
         niter : int
             number of iterations in the finale steps.
-            
+
         Returns
         -------
-        fastphase.mod_params 
-        
+        fastphase.mod_params
+
         A set of parameters of a fastphase model.
 
-        Note 
+        Note
         ----
         Computations are parallelized across available CPUs (see fastphase.nproc)
 
@@ -324,7 +324,7 @@ class fastphase():
         for n in range(1, nEM):
             if verbose:
                 print("*** Init EM", n+1,file=self.flog)
-            
+
             par = self.fit( nClus = nClus, nstep = nstep,verbose = True, alpha_up = alpha_up, fast=fast)
             liktraj.append((n, 0, par.loglike))
             if par.loglike > curpar.loglike:
@@ -335,7 +335,7 @@ class fastphase():
         print('Initial Viterbi',file=self.flog)
         self.flog.flush()
         imp = self.viterbi([curpar])
-        
+
         for it in range(niter):
             if verbose:
                 print("*** Iter", it+1,file=self.flog)
@@ -346,10 +346,10 @@ class fastphase():
                 self.flog.flush()
 
             cost_mat_tot = np.zeros( (self.nLoci-1, nClus, nClus), dtype=np.float)
-            hargs = ( ( np.array(imp[haplo][0],dtype=np.int32) , nClus) for haplo in self.haplotypes.keys())
+            hargs = ( ( np.array(imp[haplo][0],dtype=int) , nClus) for haplo in self.haplotypes.keys())
             for res in self.pool.imap_unordered(calc_cost_matrix_haplo_tot, hargs, chunksize=10):
                 cost_mat_tot += res
-            gargs = ( ( np.array(imp[geno][0],dtype=np.int32) , nClus) for geno in self.genotypes.keys())
+            gargs = ( ( np.array(imp[geno][0],dtype=int) , nClus) for geno in self.genotypes.keys())
             for res in self.pool.imap_unordered(calc_cost_matrix_geno_tot, gargs, chunksize=10):
                 cost_mat_tot += res
 
@@ -371,7 +371,7 @@ class fastphase():
                 imp = self.viterbi([par_s])
             curpar = par_s
             liktraj.append((nbest, it+1, curpar.loglike))
-        
+
         ## add alpha update
         # par_s = self.fit(nClus = nClus, nstep = max(30,nstep), verbose = True, params = par_s, alpha_up = True, theta_up = False, fast = fast)
         # liktraj.append((nbest, it+2, par_s.loglike))
@@ -389,7 +389,7 @@ class fastphase():
             Imputations[item.name]=item.path
         return Imputations
 
-    
+
     def impute(self,parList):
         htasks =  ( imputeInData('haplo',parList,self.nLoci,name,hap) for name, hap in  self.haplotypes.items())
         gtasks = ( imputeInData('geno',parList,self.nLoci,name,gen) for name, gen in self.genotypes.items())
@@ -492,12 +492,12 @@ def imputer( item):
 ##### Cluster switch functions
 
 cpdef np.ndarray[np.float64_t, ndim=3] calc_cost_matrix_haplo_tot( args ):
-    cdef np.ndarray[np.int32_t, ndim=1] h = args[0]
+    cdef np.ndarray[np.int_t, ndim=1] h = args[0]
     cdef int nK = args[1]
     cdef int l,nL
     nL= h.shape[0]
     cdef np.ndarray[np.float64_t, ndim=3] res = np.zeros( ( nL-1, nK, nK), dtype=np.float64)
-    
+
     for l in range(nL -1):
         res[l, h[l], h[l+1]] -= 1
     return res
@@ -511,7 +511,7 @@ def calc_cost_matrix_haplo( args):
     return cost_mat
 
 cpdef np.ndarray[np.float64_t, ndim=3] calc_cost_matrix_geno_tot( args):
-    cdef np.ndarray[np.int32_t, ndim=2] g = args[0]
+    cdef np.ndarray[np.int_t, ndim=2] g = args[0]
     cdef int nK = args[1]
     cdef int l,nL
     cdef int k1, k2, kp1, kp2
@@ -659,14 +659,14 @@ cpdef genViterbi( aa, tt, rr, gg):
     cdef int nLoc, nK, ikp,  prev_kp, npairs
     cdef int k1, k2, kp1, kp2, m
     cdef double best_v
-    
+
     nLoc = alpha.shape[0]
     nK = alpha.shape[1]
     npairs = nK * ( nK + 1)//2
-    
+
     cdef np.ndarray[ np.float64_t, ndim = 2 ] delta = np.zeros((npairs, nLoc), dtype=np.float64)
-    cdef np.ndarray[ np.int_t, ndim = 2 ] psi = np.zeros((npairs, nLoc), dtype=np.int)
-    cdef np.ndarray[ np.int_t, ndim = 1] soluce = np.zeros(nLoc, dtype= np.int)
+    cdef np.ndarray[ np.int_t, ndim = 2 ] psi = np.zeros((npairs, nLoc), dtype=int)
+    cdef np.ndarray[ np.int_t, ndim = 1] soluce = np.zeros(nLoc, dtype= int)
     cdef np.ndarray[ np.float64_t, ndim = 1] tempVal = np.zeros( npairs, dtype=np.float64)
 
 
@@ -703,7 +703,7 @@ cpdef genViterbi( aa, tt, rr, gg):
     for m in range( nLoc - 2, -1, -1):
         soluce[ m ] = psi[ soluce[ m+1 ], m+1]
     return [ idx2pair(ikp, nK) for ikp in soluce]
-            
+
 cpdef genCalc(aa,tt,rr,gg,u2p):
     cdef np.ndarray[np.float64_t, ndim=2] alpha=aa
     cdef np.ndarray[np.float64_t,ndim=2] theta=tt
@@ -728,7 +728,7 @@ cpdef genCalc(aa,tt,rr,gg,u2p):
     ##
     ## compute backward probabilities
     ##
-    cdef np.ndarray[np.int_t,ndim=1] betaScale=np.zeros(nLoc,dtype=np.int)
+    cdef np.ndarray[np.int_t,ndim=1] betaScale=np.zeros(nLoc,dtype=int)
     cdef np.ndarray[np.float64_t,ndim=2] tSumk=np.zeros((nLoc,nK),dtype=np.float64)
     cdef np.ndarray[np.float64_t,ndim=1] tDoubleSum=np.zeros(nLoc,dtype=np.float64)
     cdef np.ndarray[np.float64_t,ndim=3] mBeta=np.zeros((nLoc,nK,nK),dtype=np.float64)
@@ -777,7 +777,7 @@ cpdef genCalc(aa,tt,rr,gg,u2p):
     ## compute forward probabilities
     ##
     cdef np.ndarray[np.float64_t,ndim=3] mPhi=np.zeros((nLoc,nK,nK),dtype=np.float64)
-    cdef np.ndarray[np.int_t,ndim=1] phiScale=np.zeros(nLoc,dtype=np.int)
+    cdef np.ndarray[np.int_t,ndim=1] phiScale=np.zeros(nLoc,dtype=int)
     ## at locus 0
     for k1 in range(nK):
         for k2 in range(k1,nK):
@@ -861,10 +861,10 @@ cpdef genCalc(aa,tt,rr,gg,u2p):
     # calc jmk
     for k1 in range(nK):
         ##jmk[0,k1]=2*alpha[0,k1]
-        jmk[0, k1] = probZ[0,k1,k1] 
+        jmk[0, k1] = probZ[0,k1,k1]
         for k2 in range(nK):
-            jmk[0, k1] += probZ[0, k2, k1] 
-            
+            jmk[0, k1] += probZ[0, k2, k1]
+
     for m in range(1,nLoc):
         dummy = myPow10(phiScale[m-1]+betaScale[m]-phiScale[nLoc-1])
         for k in range(nK):
@@ -933,7 +933,7 @@ cpdef likCalc(aa,tt,rr,ll,u2p):
     ##
     ## compute backward probabilities
     ##
-    cdef np.ndarray[np.int_t,ndim=1] betaScale=np.zeros(nLoc,dtype=np.int)
+    cdef np.ndarray[np.int_t,ndim=1] betaScale=np.zeros(nLoc,dtype=int)
     cdef np.ndarray[np.float64_t,ndim=2] tSumk=np.zeros((nLoc,nK),dtype=np.float64)
     cdef np.ndarray[np.float64_t,ndim=1] tDoubleSum=np.zeros(nLoc,dtype=np.float64)
     cdef np.ndarray[np.float64_t,ndim=3] mBeta=np.zeros((nLoc,nK,nK),dtype=np.float64)
@@ -982,7 +982,7 @@ cpdef likCalc(aa,tt,rr,ll,u2p):
     ## compute forward probabilities
     ##
     cdef np.ndarray[np.float64_t,ndim=3] mPhi=np.zeros((nLoc,nK,nK),dtype=np.float64)
-    cdef np.ndarray[np.int_t,ndim=1] phiScale=np.zeros(nLoc,dtype=np.int)
+    cdef np.ndarray[np.int_t,ndim=1] phiScale=np.zeros(nLoc,dtype=int)
     ## at locus 0
     for k1 in range(nK):
         for k2 in range(k1,nK):
@@ -1068,15 +1068,15 @@ cpdef likCalc(aa,tt,rr,ll,u2p):
     for k1 in range(nK):
         for k2 in range(k1,nK):
             temp = alpha[0,k1]*alpha[0,k2]*mBeta[0,k1,k2]
-            p_g_givX[0,0] += temp*genprG(theta[0,k1],theta[0,k2],0) 
-            p_g_givX[0,1] += temp*genprG(theta[0,k1],theta[0,k2],1) 
+            p_g_givX[0,0] += temp*genprG(theta[0,k1],theta[0,k2],0)
+            p_g_givX[0,1] += temp*genprG(theta[0,k1],theta[0,k2],1)
             p_g_givX[0,2] += temp*genprG(theta[0,k1],theta[0,k2],2)
     p_g_givX[0,0] *= lik[0,0]
     p_g_givX[0,1] *= lik[0,1]
     p_g_givX[0,2] *= lik[0,2]
     normC = p_g_givX[0,0]+p_g_givX[0,1]+p_g_givX[0,2]
     p_g_givX[0]/=normC
-            
+
     for m in range(nLoc-1):
         for k1 in range(nK):
             for k2 in range(k1,nK):
@@ -1093,16 +1093,16 @@ cpdef likCalc(aa,tt,rr,ll,u2p):
         p_g_givX[m+1,2] *= lik[m+1,2]
         normC = p_g_givX[m+1,0]+p_g_givX[m+1,1]+p_g_givX[m+1,2]
         p_g_givX[m+1]/=normC
-                
+
     if up2pz>0:
         return probZ,p_g_givX
     # calc jmk
     for k1 in range(nK):
         ##jmk[0,k1]=2*alpha[0,k1]
-        jmk[0, k1] = probZ[0,k1,k1] 
+        jmk[0, k1] = probZ[0,k1,k1]
         for k2 in range(nK):
-            jmk[0, k1] += probZ[0, k2, k1] 
-            
+            jmk[0, k1] += probZ[0, k2, k1]
+
     for m in range(1,nLoc):
         dummy = myPow10(phiScale[m-1]+betaScale[m]-phiScale[nLoc-1])
         for k in range(nK):
@@ -1134,7 +1134,7 @@ cpdef likCalc(aa,tt,rr,ll,u2p):
 
 
 #### Haplotype Calculations
-    
+
 cdef double happrG(double t,int s):
     if s==0:
         return 1-t
@@ -1142,7 +1142,7 @@ cdef double happrG(double t,int s):
         return t
     else:
         return 1
-  
+
 cpdef hapViterbi( aa, tt, rr, hh):
     cdef np.ndarray[np.float64_t, ndim=2] alpha = aa
     cdef np.ndarray[np.float64_t,ndim=2] theta = tt
@@ -1156,10 +1156,10 @@ cpdef hapViterbi( aa, tt, rr, hh):
     nLoc = alpha.shape[0]
     nK = alpha.shape[1]
     cdef np.ndarray[ np.float64_t, ndim = 2 ] delta = np.zeros((nK, nLoc), dtype=np.float64)
-    cdef np.ndarray[ np.int_t, ndim = 2 ] psi = np.zeros((nK, nLoc), dtype=np.int)
-    cdef np.ndarray[ np.int_t, ndim = 1] soluce = np.empty(nLoc, dtype= np.int)
+    cdef np.ndarray[ np.int_t, ndim = 2 ] psi = np.zeros((nK, nLoc), dtype=int)
+    cdef np.ndarray[ np.int_t, ndim = 1] soluce = np.empty(nLoc, dtype= int)
     cdef np.ndarray[ np.float64_t, ndim = 1] tempVal = np.zeros( nK, dtype=np.float64)
-    
+
     ## initialization
     for k in range(nK):
         delta[k,0] = log(alpha[ 0, k]) + log(happrG( theta[ 0, k], hap[0]))
@@ -1176,13 +1176,13 @@ cpdef hapViterbi( aa, tt, rr, hh):
                 tempVal[ prev_k] +=  delta[prev_k, m-1]
             psi[ k, m] = argmax(tempVal, nK)
             delta[ k, m] = tempVal[ psi[ k, m]] +log( happrG( theta[ m, k], hap[ m]))
-    
+
     ## termination
     soluce[ nLoc - 1 ] = argmax( delta[ :, nLoc-1], nK)
     for m in range( nLoc - 2, -1, -1):
         soluce[ m ] = psi[ soluce[ m+1 ], m+1]
     return soluce
-            
+
 cpdef hapCalc(aa,tt,rr,hh,u2p):
     cdef np.ndarray[np.float64_t, ndim=2] alpha = aa
     cdef np.ndarray[np.float64_t,ndim=2] theta = tt
@@ -1201,7 +1201,7 @@ cpdef hapCalc(aa,tt,rr,hh,u2p):
     ##
     ## compute backward probabilities
     ##
-    cdef np.ndarray[np.int_t,ndim=1] betaScale=np.zeros(nLoc,dtype=np.int)
+    cdef np.ndarray[np.int_t,ndim=1] betaScale=np.zeros(nLoc,dtype=int)
     cdef np.ndarray[np.float64_t,ndim=1] tSum=np.zeros(nLoc,dtype=np.float64)
     cdef np.ndarray[np.float64_t,ndim=2] mBeta=np.zeros((nLoc,nK),dtype=np.float64)
 
@@ -1239,14 +1239,14 @@ cpdef hapCalc(aa,tt,rr,hh,u2p):
     ## compute forward probabilities
     ##
     cdef np.ndarray[np.float64_t,ndim=2] mPhi=np.zeros((nLoc,nK),dtype=np.float64)
-    cdef np.ndarray[np.int_t,ndim=1] phiScale=np.zeros(nLoc,dtype=np.int)
+    cdef np.ndarray[np.int_t,ndim=1] phiScale=np.zeros(nLoc,dtype=int)
     for k in range(nK):
         mPhi[0,k]=alpha[0,k]*happrG(theta[0,k],hap[0])
     ## calc the marginal sum at locus 0 (appx A)
     tSum[0]=0
     for k in range(nK):
         tSum[0]+=mPhi[0,k]
-    ## calc Phi 
+    ## calc Phi
     for m in range(nLoc-1):
         tSum[m+1]=0
         ## this loop could be parallelized across clusters #CUDA
@@ -1277,7 +1277,7 @@ cpdef hapCalc(aa,tt,rr,hh,u2p):
     cdef np.ndarray[np.float64_t,ndim=2] jmk=np.zeros((nLoc,nK),dtype=np.float64)
     cdef np.ndarray[np.float64_t,ndim=2] top=np.zeros((nLoc,nK),dtype=np.float64)
     cdef np.ndarray[np.float64_t,ndim=2] bot=np.zeros((nLoc,nK),dtype=np.float64)
-    
+
     for m in range(nLoc):
         normC=0
         for k in range(nK):
@@ -1314,5 +1314,3 @@ cpdef hapCalc(aa,tt,rr,hh,u2p):
                 top[m,k]=probZ[m,k]
                 bot[m,k]=probZ[m,k]
     return logLikelihood,top,bot,jmk
-
-

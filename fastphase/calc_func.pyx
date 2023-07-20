@@ -16,7 +16,7 @@ cpdef np.ndarray[np.float64_t, ndim=3] calc_cost_matrix_haplo_tot( args ):
     cdef int l,nL
     nL= h.shape[0]
     cdef np.ndarray[np.float64_t, ndim=3] res = np.zeros( ( nL-1, nK, nK), dtype=np.float64)
-    
+
     for l in range(nL -1):
         res[l, h[l], h[l+1]] -= 1
     return res
@@ -172,14 +172,14 @@ cpdef genViterbi( aa, tt, rr, gg):
     cdef int nLoc, nK, ikp,  prev_kp, npairs
     cdef int k1, k2, kp1, kp2, m
     cdef double best_v
-    
+
     nLoc = alpha.shape[0]
     nK = alpha.shape[1]
     npairs = nK * ( nK + 1)//2
-    
+
     cdef np.ndarray[ np.float64_t, ndim = 2 ] delta = np.zeros((npairs, nLoc), dtype=np.float64)
-    cdef np.ndarray[ np.int_t, ndim = 2 ] psi = np.zeros((npairs, nLoc), dtype=np.int)
-    cdef np.ndarray[ np.int_t, ndim = 1] soluce = np.zeros(nLoc, dtype= np.int)
+    cdef np.ndarray[ np.int_t, ndim = 2 ] psi = np.zeros((npairs, nLoc), dtype=int)
+    cdef np.ndarray[ np.int_t, ndim = 1] soluce = np.zeros(nLoc, dtype= int)
     cdef np.ndarray[ np.float64_t, ndim = 1] tempVal = np.zeros( npairs, dtype=np.float64)
 
 
@@ -216,7 +216,7 @@ cpdef genViterbi( aa, tt, rr, gg):
     for m in range( nLoc - 2, -1, -1):
         soluce[ m ] = psi[ soluce[ m+1 ], m+1]
     return [ idx2pair(ikp, nK) for ikp in soluce]
-            
+
 cpdef genCalc(aa,tt,rr,gg,u2p):
     cdef np.ndarray[np.float64_t, ndim=2] alpha=aa
     cdef np.ndarray[np.float64_t,ndim=2] theta=tt
@@ -241,7 +241,7 @@ cpdef genCalc(aa,tt,rr,gg,u2p):
     ##
     ## compute backward probabilities
     ##
-    cdef np.ndarray[np.int_t,ndim=1] betaScale=np.zeros(nLoc,dtype=np.int)
+    cdef np.ndarray[np.int_t,ndim=1] betaScale=np.zeros(nLoc,dtype=int)
     cdef np.ndarray[np.float64_t,ndim=2] tSumk=np.zeros((nLoc,nK),dtype=np.float64)
     cdef np.ndarray[np.float64_t,ndim=1] tDoubleSum=np.zeros(nLoc,dtype=np.float64)
     cdef np.ndarray[np.float64_t,ndim=3] mBeta=np.zeros((nLoc,nK,nK),dtype=np.float64)
@@ -290,7 +290,7 @@ cpdef genCalc(aa,tt,rr,gg,u2p):
     ## compute forward probabilities
     ##
     cdef np.ndarray[np.float64_t,ndim=3] mPhi=np.zeros((nLoc,nK,nK),dtype=np.float64)
-    cdef np.ndarray[np.int_t,ndim=1] phiScale=np.zeros(nLoc,dtype=np.int)
+    cdef np.ndarray[np.int_t,ndim=1] phiScale=np.zeros(nLoc,dtype=int)
     ## at locus 0
     for k1 in range(nK):
         for k2 in range(k1,nK):
@@ -374,10 +374,10 @@ cpdef genCalc(aa,tt,rr,gg,u2p):
     # calc jmk
     for k1 in range(nK):
         ##jmk[0,k1]=2*alpha[0,k1]
-        jmk[0, k1] = probZ[0,k1,k1] 
+        jmk[0, k1] = probZ[0,k1,k1]
         for k2 in range(nK):
-            jmk[0, k1] += probZ[0, k2, k1] 
-            
+            jmk[0, k1] += probZ[0, k2, k1]
+
     for m in range(1,nLoc):
         dummy = myPow10(phiScale[m-1]+betaScale[m]-phiScale[nLoc-1])
         for k in range(nK):
@@ -447,7 +447,7 @@ cpdef likCalc(aa,tt,rr,ll,u2p):
     ##
     ## compute backward probabilities
     ##
-    cdef np.ndarray[np.int_t,ndim=1] betaScale=np.zeros(nLoc,dtype=np.int)
+    cdef np.ndarray[np.int_t,ndim=1] betaScale=np.zeros(nLoc,dtype=int)
     cdef np.ndarray[np.float64_t,ndim=2] tSumk=np.zeros((nLoc,nK),dtype=np.float64)
     cdef np.ndarray[np.float64_t,ndim=1] tDoubleSum=np.zeros(nLoc,dtype=np.float64)
     cdef np.ndarray[np.float64_t,ndim=3] mBeta=np.zeros((nLoc,nK,nK),dtype=np.float64)
@@ -496,7 +496,7 @@ cpdef likCalc(aa,tt,rr,ll,u2p):
     ## compute forward probabilities
     ##
     cdef np.ndarray[np.float64_t,ndim=3] mPhi=np.zeros((nLoc,nK,nK),dtype=np.float64)
-    cdef np.ndarray[np.int_t,ndim=1] phiScale=np.zeros(nLoc,dtype=np.int)
+    cdef np.ndarray[np.int_t,ndim=1] phiScale=np.zeros(nLoc,dtype=int)
     ## at locus 0
     for k1 in range(nK):
         for k2 in range(k1,nK):
@@ -582,15 +582,15 @@ cpdef likCalc(aa,tt,rr,ll,u2p):
     for k1 in range(nK):
         for k2 in range(k1,nK):
             temp = alpha[0,k1]*alpha[0,k2]*mBeta[0,k1,k2]
-            p_g_givX[0,0] += temp*genprG(theta[0,k1],theta[0,k2],0) 
-            p_g_givX[0,1] += temp*genprG(theta[0,k1],theta[0,k2],1) 
+            p_g_givX[0,0] += temp*genprG(theta[0,k1],theta[0,k2],0)
+            p_g_givX[0,1] += temp*genprG(theta[0,k1],theta[0,k2],1)
             p_g_givX[0,2] += temp*genprG(theta[0,k1],theta[0,k2],2)
     p_g_givX[0,0] *= lik[0,0]
     p_g_givX[0,1] *= lik[0,1]
     p_g_givX[0,2] *= lik[0,2]
     normC = p_g_givX[0,0]+p_g_givX[0,1]+p_g_givX[0,2]
     p_g_givX[0]/=normC
-            
+
     for m in range(nLoc-1):
         for k1 in range(nK):
             for k2 in range(k1,nK):
@@ -607,16 +607,16 @@ cpdef likCalc(aa,tt,rr,ll,u2p):
         p_g_givX[m+1,2] *= lik[m+1,2]
         normC = p_g_givX[m+1,0]+p_g_givX[m+1,1]+p_g_givX[m+1,2]
         p_g_givX[m+1]/=normC
-                
+
     if up2pz>0:
         return probZ,p_g_givX
     # calc jmk
     for k1 in range(nK):
         ##jmk[0,k1]=2*alpha[0,k1]
-        jmk[0, k1] = probZ[0,k1,k1] 
+        jmk[0, k1] = probZ[0,k1,k1]
         for k2 in range(nK):
-            jmk[0, k1] += probZ[0, k2, k1] 
-            
+            jmk[0, k1] += probZ[0, k2, k1]
+
     for m in range(1,nLoc):
         dummy = myPow10(phiScale[m-1]+betaScale[m]-phiScale[nLoc-1])
         for k in range(nK):
@@ -648,7 +648,7 @@ cpdef likCalc(aa,tt,rr,ll,u2p):
 
 
 #### Haplotype Calculations
-    
+
 cdef double happrG(double t,int s):
     if s==0:
         return 1-t
@@ -656,7 +656,7 @@ cdef double happrG(double t,int s):
         return t
     else:
         return 1
-  
+
 cpdef hapViterbi( aa, tt, rr, hh):
     cdef np.ndarray[np.float64_t, ndim=2] alpha = aa
     cdef np.ndarray[np.float64_t,ndim=2] theta = tt
@@ -670,10 +670,10 @@ cpdef hapViterbi( aa, tt, rr, hh):
     nLoc = alpha.shape[0]
     nK = alpha.shape[1]
     cdef np.ndarray[ np.float64_t, ndim = 2 ] delta = np.zeros((nK, nLoc), dtype=np.float64)
-    cdef np.ndarray[ np.int_t, ndim = 2 ] psi = np.zeros((nK, nLoc), dtype=np.int)
-    cdef np.ndarray[ np.int_t, ndim = 1] soluce = np.empty(nLoc, dtype= np.int)
+    cdef np.ndarray[ np.int_t, ndim = 2 ] psi = np.zeros((nK, nLoc), dtype=int)
+    cdef np.ndarray[ np.int_t, ndim = 1] soluce = np.empty(nLoc, dtype= int)
     cdef np.ndarray[ np.float64_t, ndim = 1] tempVal = np.zeros( nK, dtype=np.float64)
-    
+
     ## initialization
     for k in range(nK):
         delta[k,0] = log(alpha[ 0, k]) + log(happrG( theta[ 0, k], hap[0]))
@@ -690,13 +690,13 @@ cpdef hapViterbi( aa, tt, rr, hh):
                 tempVal[ prev_k] += delta[prev_k, m-1]
             psi[ k, m] = argmax(tempVal, nK)
             delta[ k, m] = tempVal[ psi[ k, m]] +log( happrG( theta[ m, k], hap[ m]))
-    
+
     ## termination
     soluce[ nLoc - 1 ] = argmax( delta[ :, nLoc-1], nK)
     for m in range( nLoc - 2, -1, -1):
         soluce[ m ] = psi[ soluce[ m+1 ], m+1]
     return soluce
-            
+
 cpdef hapCalc(aa,tt,rr,hh,u2p):
     cdef np.ndarray[np.float64_t, ndim=2] alpha = aa
     cdef np.ndarray[np.float64_t,ndim=2] theta = tt
@@ -715,7 +715,7 @@ cpdef hapCalc(aa,tt,rr,hh,u2p):
     ##
     ## compute backward probabilities
     ##
-    cdef np.ndarray[np.int_t,ndim=1] betaScale=np.zeros(nLoc,dtype=np.int)
+    cdef np.ndarray[np.int_t,ndim=1] betaScale=np.zeros(nLoc,dtype=int)
     cdef np.ndarray[np.float64_t,ndim=1] tSum=np.zeros(nLoc,dtype=np.float64)
     cdef np.ndarray[np.float64_t,ndim=2] mBeta=np.zeros((nLoc,nK),dtype=np.float64)
 
@@ -753,14 +753,14 @@ cpdef hapCalc(aa,tt,rr,hh,u2p):
     ## compute forward probabilities
     ##
     cdef np.ndarray[np.float64_t,ndim=2] mPhi=np.zeros((nLoc,nK),dtype=np.float64)
-    cdef np.ndarray[np.int_t,ndim=1] phiScale=np.zeros(nLoc,dtype=np.int)
+    cdef np.ndarray[np.int_t,ndim=1] phiScale=np.zeros(nLoc,dtype=int)
     for k in range(nK):
         mPhi[0,k]=alpha[0,k]*happrG(theta[0,k],hap[0])
     ## calc the marginal sum at locus 0 (appx A)
     tSum[0]=0
     for k in range(nK):
         tSum[0]+=mPhi[0,k]
-    ## calc Phi 
+    ## calc Phi
     for m in range(nLoc-1):
         tSum[m+1]=0
         ## this loop could be parallelized across clusters #CUDA
@@ -791,7 +791,7 @@ cpdef hapCalc(aa,tt,rr,hh,u2p):
     cdef np.ndarray[np.float64_t,ndim=2] jmk=np.zeros((nLoc,nK),dtype=np.float64)
     cdef np.ndarray[np.float64_t,ndim=2] top=np.zeros((nLoc,nK),dtype=np.float64)
     cdef np.ndarray[np.float64_t,ndim=2] bot=np.zeros((nLoc,nK),dtype=np.float64)
-    
+
     for m in range(nLoc):
         normC=0
         for k in range(nK):
@@ -828,5 +828,3 @@ cpdef hapCalc(aa,tt,rr,hh,u2p):
                 top[m,k]=probZ[m,k]
                 bot[m,k]=probZ[m,k]
     return logLikelihood,top,bot,jmk
-
-
