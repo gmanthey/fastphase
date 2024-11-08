@@ -492,7 +492,7 @@ def imputer( item):
 ##### Cluster switch functions
 
 cpdef np.ndarray[np.float64_t, ndim=3] calc_cost_matrix_haplo_tot( args ):
-    cdef np.ndarray[np.int_t, ndim=1] h = args[0]
+    cdef np.ndarray[np.int32_t, ndim=1] h = args[0]
     cdef int nK = args[1]
     cdef int l,nL
     nL= h.shape[0]
@@ -511,7 +511,7 @@ def calc_cost_matrix_haplo( args):
     return cost_mat
 
 cpdef np.ndarray[np.float64_t, ndim=3] calc_cost_matrix_geno_tot( args):
-    cdef np.ndarray[np.int_t, ndim=2] g = args[0]
+    cdef np.ndarray[np.int32_t, ndim=2] g = args[0]
     cdef int nK = args[1]
     cdef int l,nL
     cdef int k1, k2, kp1, kp2
@@ -653,7 +653,7 @@ cpdef genViterbi( aa, tt, rr, gg):
     cdef np.ndarray[np.float64_t, ndim=2] alpha = aa
     cdef np.ndarray[np.float64_t,ndim=2] theta = tt
     cdef np.ndarray[np.float64_t, ndim=2] rho = rr
-    cdef np.ndarray[np.int_t, ndim=1] gen = gg
+    cdef np.ndarray[np.int32_t, ndim=1] gen = gg
 
     ## cython declarations
     cdef int nLoc, nK, ikp,  prev_kp, npairs
@@ -665,8 +665,8 @@ cpdef genViterbi( aa, tt, rr, gg):
     npairs = nK * ( nK + 1)//2
 
     cdef np.ndarray[ np.float64_t, ndim = 2 ] delta = np.zeros((npairs, nLoc), dtype=np.float64)
-    cdef np.ndarray[ np.int_t, ndim = 2 ] psi = np.zeros((npairs, nLoc), dtype=int)
-    cdef np.ndarray[ np.int_t, ndim = 1] soluce = np.zeros(nLoc, dtype= int)
+    cdef np.ndarray[ np.int32_t, ndim = 2 ] psi = np.zeros((npairs, nLoc), dtype=int)
+    cdef np.ndarray[ np.int32_t, ndim = 1] soluce = np.zeros(nLoc, dtype= int)
     cdef np.ndarray[ np.float64_t, ndim = 1] tempVal = np.zeros( npairs, dtype=np.float64)
 
 
@@ -708,7 +708,7 @@ cpdef genCalc(aa,tt,rr,gg,u2p):
     cdef np.ndarray[np.float64_t, ndim=2] alpha=aa
     cdef np.ndarray[np.float64_t,ndim=2] theta=tt
     cdef np.ndarray[np.float64_t, ndim=2] rho=rr
-    cdef np.ndarray[np.int_t, ndim=1] gen=gg
+    cdef np.ndarray[np.int32_t, ndim=1] gen=gg
     cdef int up2pz=u2p
     ## implementation comment: TODO = try to minimize the memory footprint
     ## of big Nloc*nK*nK matrices
@@ -728,7 +728,7 @@ cpdef genCalc(aa,tt,rr,gg,u2p):
     ##
     ## compute backward probabilities
     ##
-    cdef np.ndarray[np.int_t,ndim=1] betaScale=np.zeros(nLoc,dtype=int)
+    cdef np.ndarray[np.int32_t,ndim=1] betaScale=np.zeros(nLoc,dtype=int)
     cdef np.ndarray[np.float64_t,ndim=2] tSumk=np.zeros((nLoc,nK),dtype=np.float64)
     cdef np.ndarray[np.float64_t,ndim=1] tDoubleSum=np.zeros(nLoc,dtype=np.float64)
     cdef np.ndarray[np.float64_t,ndim=3] mBeta=np.zeros((nLoc,nK,nK),dtype=np.float64)
@@ -777,7 +777,7 @@ cpdef genCalc(aa,tt,rr,gg,u2p):
     ## compute forward probabilities
     ##
     cdef np.ndarray[np.float64_t,ndim=3] mPhi=np.zeros((nLoc,nK,nK),dtype=np.float64)
-    cdef np.ndarray[np.int_t,ndim=1] phiScale=np.zeros(nLoc,dtype=int)
+    cdef np.ndarray[np.int32_t,ndim=1] phiScale=np.zeros(nLoc,dtype=int)
     ## at locus 0
     for k1 in range(nK):
         for k2 in range(k1,nK):
@@ -933,7 +933,7 @@ cpdef likCalc(aa,tt,rr,ll,u2p):
     ##
     ## compute backward probabilities
     ##
-    cdef np.ndarray[np.int_t,ndim=1] betaScale=np.zeros(nLoc,dtype=int)
+    cdef np.ndarray[np.int32_t,ndim=1] betaScale=np.zeros(nLoc,dtype=int)
     cdef np.ndarray[np.float64_t,ndim=2] tSumk=np.zeros((nLoc,nK),dtype=np.float64)
     cdef np.ndarray[np.float64_t,ndim=1] tDoubleSum=np.zeros(nLoc,dtype=np.float64)
     cdef np.ndarray[np.float64_t,ndim=3] mBeta=np.zeros((nLoc,nK,nK),dtype=np.float64)
@@ -982,7 +982,7 @@ cpdef likCalc(aa,tt,rr,ll,u2p):
     ## compute forward probabilities
     ##
     cdef np.ndarray[np.float64_t,ndim=3] mPhi=np.zeros((nLoc,nK,nK),dtype=np.float64)
-    cdef np.ndarray[np.int_t,ndim=1] phiScale=np.zeros(nLoc,dtype=int)
+    cdef np.ndarray[np.int32_t,ndim=1] phiScale=np.zeros(nLoc,dtype=int)
     ## at locus 0
     for k1 in range(nK):
         for k2 in range(k1,nK):
@@ -1147,7 +1147,7 @@ cpdef hapViterbi( aa, tt, rr, hh):
     cdef np.ndarray[np.float64_t, ndim=2] alpha = aa
     cdef np.ndarray[np.float64_t,ndim=2] theta = tt
     cdef np.ndarray[np.float64_t, ndim=2] rho = rr
-    cdef np.ndarray[np.int_t, ndim=1] hap = hh
+    cdef np.ndarray[np.int32_t, ndim=1] hap = hh
 
     ## cython declarations
     cdef int nLoc, nK
@@ -1156,8 +1156,8 @@ cpdef hapViterbi( aa, tt, rr, hh):
     nLoc = alpha.shape[0]
     nK = alpha.shape[1]
     cdef np.ndarray[ np.float64_t, ndim = 2 ] delta = np.zeros((nK, nLoc), dtype=np.float64)
-    cdef np.ndarray[ np.int_t, ndim = 2 ] psi = np.zeros((nK, nLoc), dtype=int)
-    cdef np.ndarray[ np.int_t, ndim = 1] soluce = np.empty(nLoc, dtype= int)
+    cdef np.ndarray[ np.int32_t, ndim = 2 ] psi = np.zeros((nK, nLoc), dtype=int)
+    cdef np.ndarray[ np.int32_t, ndim = 1] soluce = np.empty(nLoc, dtype= int)
     cdef np.ndarray[ np.float64_t, ndim = 1] tempVal = np.zeros( nK, dtype=np.float64)
 
     ## initialization
@@ -1187,7 +1187,7 @@ cpdef hapCalc(aa,tt,rr,hh,u2p):
     cdef np.ndarray[np.float64_t, ndim=2] alpha = aa
     cdef np.ndarray[np.float64_t,ndim=2] theta = tt
     cdef np.ndarray[np.float64_t, ndim=2] rho = rr
-    cdef np.ndarray[np.int_t, ndim=1] hap = hh
+    cdef np.ndarray[np.int32_t, ndim=1] hap = hh
     cdef int up2pz=u2p
     ## cython declarations
     cdef int nLoc,nK,tScale
@@ -1201,7 +1201,7 @@ cpdef hapCalc(aa,tt,rr,hh,u2p):
     ##
     ## compute backward probabilities
     ##
-    cdef np.ndarray[np.int_t,ndim=1] betaScale=np.zeros(nLoc,dtype=int)
+    cdef np.ndarray[np.int32_t,ndim=1] betaScale=np.zeros(nLoc,dtype=int)
     cdef np.ndarray[np.float64_t,ndim=1] tSum=np.zeros(nLoc,dtype=np.float64)
     cdef np.ndarray[np.float64_t,ndim=2] mBeta=np.zeros((nLoc,nK),dtype=np.float64)
 
@@ -1239,7 +1239,7 @@ cpdef hapCalc(aa,tt,rr,hh,u2p):
     ## compute forward probabilities
     ##
     cdef np.ndarray[np.float64_t,ndim=2] mPhi=np.zeros((nLoc,nK),dtype=np.float64)
-    cdef np.ndarray[np.int_t,ndim=1] phiScale=np.zeros(nLoc,dtype=int)
+    cdef np.ndarray[np.int32_t,ndim=1] phiScale=np.zeros(nLoc,dtype=int)
     for k in range(nK):
         mPhi[0,k]=alpha[0,k]*happrG(theta[0,k],hap[0])
     ## calc the marginal sum at locus 0 (appx A)
