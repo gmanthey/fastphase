@@ -1,3 +1,5 @@
+This is a fork of https://forge.inrae.fr/bertrand.servin/fastphase fixing some issues I've had running it (mainly) due to bugs in python. 
+
 # fastphase
 
 Python implementation of the Scheet and Stephens model and extensions.
