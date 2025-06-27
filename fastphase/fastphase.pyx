@@ -11,7 +11,8 @@ from scipy.optimize import linear_sum_assignment
 from libc.math cimport log
 cimport numpy as np
 np.import_array()
-from multiprocessing import Pool, cpu_count
+from multiprocessing import cpu_count
+from concurrent.futures import ProcessPoolExecutor
 import sys
 from functools import reduce
 from operator import add
@@ -141,7 +142,7 @@ class fastphase():
         self.prfx = prfx
 
     def __enter__(self):
-        self.pool = Pool ( self.nproc)
+        self.pool = ProcessPoolExecutor ( self.nproc)
         if self.prfx is None:
             self.flog = sys.stdout
         else:
@@ -149,7 +150,7 @@ class fastphase():
         return self
 
     def __exit__(self,*args):
-        self.pool.terminate()
+        self.pool.shutdown()
         if self.prfx is not None:
             self.flog.close()
 
@@ -244,7 +245,7 @@ class fastphase():
                 ltasks = ( fitInData( 'lik', par.alpha,par.theta,par.rho,lik,0) for lik in  self.genolik.values())
             tasks = itertools.chain(htasks,gtasks,ltasks)
 
-            for item in self.pool.imap_unordered( fitter, tasks, chunksize=10):
+            for item in self.pool.map( fitter, tasks, chunksize=10):
                 par.addIndivFit(item.top,item.bot,item.jmk,item.val)
                 log_like += item.logLike
             if verbose:
@@ -347,17 +348,17 @@ class fastphase():
 
             cost_mat_tot = np.zeros( (self.nLoci-1, nClus, nClus), dtype=np.float64)
             hargs = ( ( np.array(imp[haplo][0],dtype=int) , nClus) for haplo in self.haplotypes.keys())
-            for res in self.pool.imap_unordered(calc_cost_matrix_haplo_tot, hargs, chunksize=10):
+            for res in self.pool.map(calc_cost_matrix_haplo_tot, hargs, chunksize=10):
                 cost_mat_tot += res
             gargs = ( ( np.array(imp[geno][0],dtype=int) , nClus) for geno in self.genotypes.keys())
-            for res in self.pool.imap_unordered(calc_cost_matrix_geno_tot, gargs, chunksize=10):
+            for res in self.pool.map(calc_cost_matrix_geno_tot, gargs, chunksize=10):
                 cost_mat_tot += res
 
             ## combine
             if verbose:
                 print("Computing optimum permutations",file=self.flog)
                 self.flog.flush()
-            res = np.array( self.pool.map( linear_sum_assignment, cost_mat_tot,  1000))
+            res = np.array( self.pool.map( linear_sum_assignment, cost_mat_tot,  chunksize=1000))
 
             permut = res[:,1,:]
             newpar = switch_pars( curpar, permut)
@@ -385,7 +386,7 @@ class fastphase():
         gtasks = ( imputeInData('geno',parList,self.nLoci,name,gen) for name, gen in self.genotypes.items())
         tasks = itertools.chain(htasks,gtasks)
         Imputations={}
-        for item in self.pool.imap_unordered( viterber, tasks):
+        for item in self.pool.map( viterber, tasks):
             Imputations[item.name]=item.path
         return Imputations
 
@@ -396,7 +397,7 @@ class fastphase():
         ltasks = ( imputeInData('lik',parList,self.nLoci,name,lik) for name, lik in self.genolik.items())
         tasks = itertools.chain(htasks,gtasks,ltasks)
         Imputations={}
-        for item in self.pool.imap_unordered( imputer, tasks):
+        for item in self.pool.map( imputer, tasks):
             Imputations[item.name]=(item.pgeno,item.pZ,item.path)
         return Imputations
 
@@ -492,7 +493,7 @@ def imputer( item):
 ##### Cluster switch functions
 
 cpdef np.ndarray[np.float64_t, ndim=3] calc_cost_matrix_haplo_tot( args ):
-    cdef np.ndarray[np.int32_t, ndim=1] h = args[0]
+    cdef np.ndarray[np.intp_t, ndim=1] h = args[0]
     cdef int nK = args[1]
     cdef int l,nL
     nL= h.shape[0]
@@ -511,7 +512,7 @@ def calc_cost_matrix_haplo( args):
     return cost_mat
 
 cpdef np.ndarray[np.float64_t, ndim=3] calc_cost_matrix_geno_tot( args):
-    cdef np.ndarray[np.int32_t, ndim=2] g = args[0]
+    cdef np.ndarray[np.intp_t, ndim=2] g = args[0]
     cdef int nK = args[1]
     cdef int l,nL
     cdef int k1, k2, kp1, kp2
@@ -653,7 +654,7 @@ cpdef genViterbi( aa, tt, rr, gg):
     cdef np.ndarray[np.float64_t, ndim=2] alpha = aa
     cdef np.ndarray[np.float64_t,ndim=2] theta = tt
     cdef np.ndarray[np.float64_t, ndim=2] rho = rr
-    cdef np.ndarray[np.int32_t, ndim=1] gen = gg
+    cdef np.ndarray[np.intp_t, ndim=1] gen = gg
 
     ## cython declarations
     cdef int nLoc, nK, ikp,  prev_kp, npairs
@@ -665,8 +666,8 @@ cpdef genViterbi( aa, tt, rr, gg):
     npairs = nK * ( nK + 1)//2
 
     cdef np.ndarray[ np.float64_t, ndim = 2 ] delta = np.zeros((npairs, nLoc), dtype=np.float64)
-    cdef np.ndarray[ np.int32_t, ndim = 2 ] psi = np.zeros((npairs, nLoc), dtype=int)
-    cdef np.ndarray[ np.int32_t, ndim = 1] soluce = np.zeros(nLoc, dtype= int)
+    cdef np.ndarray[ np.intp_t, ndim = 2 ] psi = np.zeros((npairs, nLoc), dtype=int)
+    cdef np.ndarray[ np.intp_t, ndim = 1] soluce = np.zeros(nLoc, dtype= int)
     cdef np.ndarray[ np.float64_t, ndim = 1] tempVal = np.zeros( npairs, dtype=np.float64)
 
 
@@ -708,7 +709,7 @@ cpdef genCalc(aa,tt,rr,gg,u2p):
     cdef np.ndarray[np.float64_t, ndim=2] alpha=aa
     cdef np.ndarray[np.float64_t,ndim=2] theta=tt
     cdef np.ndarray[np.float64_t, ndim=2] rho=rr
-    cdef np.ndarray[np.int32_t, ndim=1] gen=gg
+    cdef np.ndarray[np.intp_t, ndim=1] gen=gg
     cdef int up2pz=u2p
     ## implementation comment: TODO = try to minimize the memory footprint
     ## of big Nloc*nK*nK matrices
@@ -728,7 +729,7 @@ cpdef genCalc(aa,tt,rr,gg,u2p):
     ##
     ## compute backward probabilities
     ##
-    cdef np.ndarray[np.int32_t,ndim=1] betaScale=np.zeros(nLoc,dtype=int)
+    cdef np.ndarray[np.intp_t,ndim=1] betaScale=np.zeros(nLoc,dtype=int)
     cdef np.ndarray[np.float64_t,ndim=2] tSumk=np.zeros((nLoc,nK),dtype=np.float64)
     cdef np.ndarray[np.float64_t,ndim=1] tDoubleSum=np.zeros(nLoc,dtype=np.float64)
     cdef np.ndarray[np.float64_t,ndim=3] mBeta=np.zeros((nLoc,nK,nK),dtype=np.float64)
@@ -777,7 +778,7 @@ cpdef genCalc(aa,tt,rr,gg,u2p):
     ## compute forward probabilities
     ##
     cdef np.ndarray[np.float64_t,ndim=3] mPhi=np.zeros((nLoc,nK,nK),dtype=np.float64)
-    cdef np.ndarray[np.int32_t,ndim=1] phiScale=np.zeros(nLoc,dtype=int)
+    cdef np.ndarray[np.intp_t,ndim=1] phiScale=np.zeros(nLoc,dtype=int)
     ## at locus 0
     for k1 in range(nK):
         for k2 in range(k1,nK):
@@ -933,7 +934,7 @@ cpdef likCalc(aa,tt,rr,ll,u2p):
     ##
     ## compute backward probabilities
     ##
-    cdef np.ndarray[np.int32_t,ndim=1] betaScale=np.zeros(nLoc,dtype=int)
+    cdef np.ndarray[np.intp_t,ndim=1] betaScale=np.zeros(nLoc,dtype=int)
     cdef np.ndarray[np.float64_t,ndim=2] tSumk=np.zeros((nLoc,nK),dtype=np.float64)
     cdef np.ndarray[np.float64_t,ndim=1] tDoubleSum=np.zeros(nLoc,dtype=np.float64)
     cdef np.ndarray[np.float64_t,ndim=3] mBeta=np.zeros((nLoc,nK,nK),dtype=np.float64)
@@ -982,7 +983,7 @@ cpdef likCalc(aa,tt,rr,ll,u2p):
     ## compute forward probabilities
     ##
     cdef np.ndarray[np.float64_t,ndim=3] mPhi=np.zeros((nLoc,nK,nK),dtype=np.float64)
-    cdef np.ndarray[np.int32_t,ndim=1] phiScale=np.zeros(nLoc,dtype=int)
+    cdef np.ndarray[np.intp_t,ndim=1] phiScale=np.zeros(nLoc,dtype=int)
     ## at locus 0
     for k1 in range(nK):
         for k2 in range(k1,nK):
@@ -1147,7 +1148,7 @@ cpdef hapViterbi( aa, tt, rr, hh):
     cdef np.ndarray[np.float64_t, ndim=2] alpha = aa
     cdef np.ndarray[np.float64_t,ndim=2] theta = tt
     cdef np.ndarray[np.float64_t, ndim=2] rho = rr
-    cdef np.ndarray[np.int32_t, ndim=1] hap = hh
+    cdef np.ndarray[np.intp_t, ndim=1] hap = hh
 
     ## cython declarations
     cdef int nLoc, nK
@@ -1156,8 +1157,8 @@ cpdef hapViterbi( aa, tt, rr, hh):
     nLoc = alpha.shape[0]
     nK = alpha.shape[1]
     cdef np.ndarray[ np.float64_t, ndim = 2 ] delta = np.zeros((nK, nLoc), dtype=np.float64)
-    cdef np.ndarray[ np.int32_t, ndim = 2 ] psi = np.zeros((nK, nLoc), dtype=int)
-    cdef np.ndarray[ np.int32_t, ndim = 1] soluce = np.empty(nLoc, dtype= int)
+    cdef np.ndarray[ np.intp_t, ndim = 2 ] psi = np.zeros((nK, nLoc), dtype=int)
+    cdef np.ndarray[ np.intp_t, ndim = 1] soluce = np.empty(nLoc, dtype= int)
     cdef np.ndarray[ np.float64_t, ndim = 1] tempVal = np.zeros( nK, dtype=np.float64)
 
     ## initialization
@@ -1187,7 +1188,7 @@ cpdef hapCalc(aa,tt,rr,hh,u2p):
     cdef np.ndarray[np.float64_t, ndim=2] alpha = aa
     cdef np.ndarray[np.float64_t,ndim=2] theta = tt
     cdef np.ndarray[np.float64_t, ndim=2] rho = rr
-    cdef np.ndarray[np.int32_t, ndim=1] hap = hh
+    cdef np.ndarray[np.intp_t, ndim=1] hap = hh
     cdef int up2pz=u2p
     ## cython declarations
     cdef int nLoc,nK,tScale
@@ -1201,7 +1202,7 @@ cpdef hapCalc(aa,tt,rr,hh,u2p):
     ##
     ## compute backward probabilities
     ##
-    cdef np.ndarray[np.int32_t,ndim=1] betaScale=np.zeros(nLoc,dtype=int)
+    cdef np.ndarray[np.intp_t,ndim=1] betaScale=np.zeros(nLoc,dtype=int)
     cdef np.ndarray[np.float64_t,ndim=1] tSum=np.zeros(nLoc,dtype=np.float64)
     cdef np.ndarray[np.float64_t,ndim=2] mBeta=np.zeros((nLoc,nK),dtype=np.float64)
 
@@ -1239,7 +1240,7 @@ cpdef hapCalc(aa,tt,rr,hh,u2p):
     ## compute forward probabilities
     ##
     cdef np.ndarray[np.float64_t,ndim=2] mPhi=np.zeros((nLoc,nK),dtype=np.float64)
-    cdef np.ndarray[np.int32_t,ndim=1] phiScale=np.zeros(nLoc,dtype=int)
+    cdef np.ndarray[np.intp_t,ndim=1] phiScale=np.zeros(nLoc,dtype=int)
     for k in range(nK):
         mPhi[0,k]=alpha[0,k]*happrG(theta[0,k],hap[0])
     ## calc the marginal sum at locus 0 (appx A)
