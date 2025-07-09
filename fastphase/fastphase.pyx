@@ -358,7 +358,7 @@ class fastphase():
             if verbose:
                 print("Computing optimum permutations",file=self.flog)
                 self.flog.flush()
-            res = np.array( self.pool.map( linear_sum_assignment, cost_mat_tot,  chunksize=1000))
+            res = np.array( list(self.pool.map( linear_sum_assignment, cost_mat_tot,  chunksize=1000)))
 
             permut = res[:,1,:]
             newpar = switch_pars( curpar, permut)
