@@ -245,9 +245,10 @@ class fastphase():
                 ltasks = ( fitInData( 'lik', par.alpha,par.theta,par.rho,lik,0) for lik in  self.genolik.values())
             tasks = itertools.chain(htasks,gtasks,ltasks)
 
-            for item in self.pool.map( fitter, tasks, chunksize=10):
-                par.addIndivFit(item.top,item.bot,item.jmk,item.val)
-                log_like += item.logLike
+            for item in tasks:
+                result = fitter(item)
+                par.addIndivFit(result.top,result.bot,result.jmk,result.val)
+                log_like += result.logLike
             if verbose:
                 print( iEM, log_like, file=self.flog)
                 self.flog.flush()
