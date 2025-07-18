@@ -348,8 +348,10 @@ class fastphase():
 
             cost_mat_tot = np.zeros( (self.nLoci-1, nClus, nClus), dtype=np.float64)
             hargs = ( ( np.array(imp[haplo][0],dtype=int) , nClus) for haplo in self.haplotypes.keys())
-            for res in self.pool.map(calc_cost_matrix_haplo_tot, hargs, chunksize=10):
-                cost_mat_tot += res
+            for haplo in self.haplotypes.keys():
+                for l in range(self.nLoci - 1):
+                    cost_mat_tot[l, imp[haplo][0][l], imp[haplo][0][l+1]] -= 1
+                    
             gargs = ( ( np.array(imp[geno][0],dtype=int) , nClus) for geno in self.genotypes.keys())
             for res in self.pool.map(calc_cost_matrix_geno_tot, gargs, chunksize=10):
                 cost_mat_tot += res
